@@ -1,10 +1,32 @@
 export const PURCHASE_CTA_LABELS = [
   "add to cart",
   "add to bag",
+  "add to basket",
   "buy now",
   "купить",
   "в корзину",
   "добавить в корзину",
+] as const;
+
+export const VARIANT_GATE_LABELS = [
+  "select size",
+  "select a size",
+  "choose size",
+  "choose a size",
+  "select shade",
+  "select a shade",
+  "choose shade",
+  "choose a shade",
+  "select color",
+  "select a color",
+  "choose color",
+  "choose a color",
+  "выберите размер",
+  "выбрать размер",
+  "выберите оттенок",
+  "выбрать оттенок",
+  "выберите цвет",
+  "выбрать цвет",
 ] as const;
 
 const PRICE_PATTERN =
@@ -17,6 +39,13 @@ export function normalizeLabel(value: string): string {
 export function matchesPurchaseCta(value: string): boolean {
   const normalized = normalizeLabel(value);
   return PURCHASE_CTA_LABELS.some(
+    (label) => normalized === label || normalized.startsWith(`${label} `),
+  );
+}
+
+export function matchesVariantGate(value: string): boolean {
+  const normalized = normalizeLabel(value);
+  return VARIANT_GATE_LABELS.some(
     (label) => normalized === label || normalized.startsWith(`${label} `),
   );
 }

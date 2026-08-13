@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   findVisiblePriceText,
   matchesPurchaseCta,
+  matchesVariantGate,
 } from "@/lib/audit/detection";
 
 describe("price detection", () => {
@@ -30,6 +31,7 @@ describe("purchase CTA detection", () => {
   it.each([
     "Add to cart",
     "ADD TO BAG",
+    "Add to Basket",
     "Buy now",
     "Купить",
     "В корзину",
@@ -38,4 +40,15 @@ describe("purchase CTA detection", () => {
 
   it("rejects unrelated copy", () =>
     expect(matchesPurchaseCta("View details")).toBe(false));
+
+  it.each([
+    "Select size",
+    "Select A Size",
+    "Choose shade",
+    "Select color",
+    "Выберите размер",
+    "Выбрать оттенок",
+  ])("matches variant gate %s", (value) =>
+    expect(matchesVariantGate(value)).toBe(true),
+  );
 });

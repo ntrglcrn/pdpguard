@@ -30,6 +30,7 @@ describe("parseProductJsonLd", () => {
       offers: true,
       price: true,
       availability: true,
+      availabilityValues: ["https://schema.org/InStock"],
     });
   });
 
