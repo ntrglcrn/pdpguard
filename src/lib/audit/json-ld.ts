@@ -9,6 +9,7 @@ export interface ProductStructuredData {
   offers: boolean;
   price: boolean;
   availability: boolean;
+  availabilityValues: string[];
   priceValues: string[];
 }
 
@@ -46,6 +47,7 @@ function collectOfferData(record: JsonRecord) {
   const priceValues: string[] = [];
   let hasPrice = false;
   let hasAvailability = false;
+  const availabilityValues: string[] = [];
 
   for (const offer of offers) {
     if (
@@ -56,7 +58,10 @@ function collectOfferData(record: JsonRecord) {
       hasPrice = true;
       priceValues.push(String(offer.price));
     }
-    if (offer.availability !== undefined) hasAvailability = true;
+    if (offer.availability !== undefined) {
+      hasAvailability = true;
+      availabilityValues.push(String(offer.availability));
+    }
 
     for (const specification of valuesOf(offer.priceSpecification)) {
       if (
@@ -70,7 +75,13 @@ function collectOfferData(record: JsonRecord) {
     }
   }
 
-  return { offers, priceValues, hasPrice, hasAvailability };
+  return {
+    offers,
+    priceValues,
+    availabilityValues,
+    hasPrice,
+    hasAvailability,
+  };
 }
 
 export function parseProductJsonLd(scripts: string[]): ProductStructuredData[] {
@@ -96,8 +107,13 @@ export function parseProductJsonLd(scripts: string[]): ProductStructuredData[] {
       );
       if (!type) continue;
 
-      const { offers, priceValues, hasPrice, hasAvailability } =
-        collectOfferData(record);
+      const {
+        offers,
+        priceValues,
+        availabilityValues,
+        hasPrice,
+        hasAvailability,
+      } = collectOfferData(record);
       products.push({
         type,
         name: typeof record.name === "string" && record.name.trim().length > 0,
@@ -108,6 +124,7 @@ export function parseProductJsonLd(scripts: string[]): ProductStructuredData[] {
         offers: offers.length > 0,
         price: hasPrice,
         availability: hasAvailability,
+        availabilityValues,
         priceValues,
       });
     }
