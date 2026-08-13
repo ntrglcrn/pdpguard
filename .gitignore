@@ -1,0 +1,24 @@
+# dependencies
+node_modules/
+
+# Next.js
+.next/
+out/
+
+# runtime data
+.runtime/
+
+# test output
+coverage/
+test-results/
+
+# local configuration
+.env*
+!.env.example
+
+# system and editor files
+.DS_Store
+*.tsbuildinfo
+
+# logs
+*.log
