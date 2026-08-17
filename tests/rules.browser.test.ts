@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { chromium, type Browser, type Page } from "playwright";
+import { chromium, type Browser, type Page, type Response } from "playwright";
 
 import { runAuditRules } from "@/lib/audit/rules";
 
@@ -37,6 +37,48 @@ describe("browser audit rules", () => {
     expect(
       (await page.screenshot({ fullPage: true })).byteLength,
     ).toBeGreaterThan(1_000);
+  });
+
+  it("returns one finding for an access challenge instead of PDP noise", async () => {
+    await page.setContent(`
+      <title>Access denied</title>
+      <main><h1>Verify you are human</h1><p>Complete the security verification to continue.</p></main>
+    `);
+    const findings = await runAuditRules({ page, mainResponse: null });
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toMatchObject({
+      ruleId: "page-availability",
+      status: "failed",
+      severity: "critical",
+    });
+    expect(findings[0].evidence.join(" ")).toContain("access challenge");
+  });
+
+  it("returns one availability finding for an HTTP failure", async () => {
+    await page.setContent("<title>Forbidden</title><main>Forbidden</main>");
+    const mainResponse = { status: () => 403 } as Response;
+    const findings = await runAuditRules({ page, mainResponse });
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toMatchObject({
+      ruleId: "page-availability",
+      status: "failed",
+      severity: "critical",
+    });
+    expect(findings[0].evidence[0]).toBe("Main response status: 403.");
+  });
+
+  it("does not reject a real PDP that mentions human verification", async () => {
+    await page.setContent(`
+      <title>Verified Product</title><main><h1>Verified Product</h1>
+      <p class="price">$40</p><button>Add to cart</button>
+      <p>Support may ask you to verify you are human.</p></main>
+    `);
+    const findings = await runAuditRules({ page, mainResponse: null });
+    expect(findings[0]).toMatchObject({
+      ruleId: "page-availability",
+      status: "passed",
+    });
+    expect(findings).toHaveLength(7);
   });
 
   it("reports a disabled purchase CTA", async () => {
@@ -160,6 +202,19 @@ describe("browser audit rules", () => {
     expect(finding?.evidence[0]).toContain("220 × 48px");
   });
 
+  it("does not treat a primary CTA upsell hook as a recommendation", async () => {
+    await page.setContent(`
+      <main><h1>Primary product</h1><p class="price">$22</p>
+        <button class="js-can-trigger-upsell" style="width:220px;height:48px">Add to bag $22</button>
+      </main>
+    `);
+    const finding = (await runAuditRules({ page, mainResponse: null })).find(
+      (item) => item.ruleId === "purchase-cta",
+    );
+    expect(finding).toMatchObject({ status: "passed" });
+    expect(finding?.evidence[0]).toContain("Add to bag $22");
+  });
+
   it("ignores 200 small recommendation CTA icons", async () => {
     const recommendations = Array.from(
       { length: 200 },
@@ -246,7 +301,7 @@ describe("browser audit rules", () => {
 
   it("reports a visible broken image", async () => {
     await page.setContent(
-      '<img src="broken://image" style="display:block;width:300px;height:300px">',
+      '<main>Product<img src="broken://image" style="display:block;width:300px;height:300px"></main>',
     );
     const findings = await runAuditRules({ page, mainResponse: null });
     expect(
