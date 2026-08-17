@@ -1,6 +1,7 @@
 export interface CatalogDiscoveryResult {
-  sitemapUrl: string;
+  sourceUrl: string;
+  sourceType: "sitemap" | "category";
   pageUrls: string[];
-  inspectedSitemaps: number;
+  inspectedSources: number;
   truncated: boolean;
 }

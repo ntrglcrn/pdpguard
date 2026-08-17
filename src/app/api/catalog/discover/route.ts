@@ -6,6 +6,10 @@ import {
   CatalogDiscoveryTimeoutError,
   discoverCatalog,
 } from "@/lib/catalog-discovery";
+import {
+  CategoryDiscoveryTimeoutError,
+  discoverCategory,
+} from "@/lib/category-discovery";
 import { UnsafeUrlError } from "@/lib/url-safety";
 
 export const runtime = "nodejs";
@@ -20,7 +24,7 @@ let discoveryInProgress = false;
 export async function POST(request: Request) {
   if (discoveryInProgress) {
     return NextResponse.json(
-      { error: "Another sitemap discovery is already running." },
+      { error: "Another catalog discovery is already running." },
       { status: 429 },
     );
   }
@@ -46,19 +50,25 @@ export async function POST(request: Request) {
   const parsed = requestSchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json(
-      { error: "Enter a valid sitemap URL." },
+      { error: "Enter a valid sitemap or category URL." },
       { status: 400 },
     );
   }
 
   discoveryInProgress = true;
   try {
-    return NextResponse.json(await discoverCatalog(parsed.data.url));
+    const result = /\.xml(?:\.gz)?(?:[?#]|$)/i.test(parsed.data.url)
+      ? await discoverCatalog(parsed.data.url)
+      : await discoverCategory(parsed.data.url);
+    return NextResponse.json(result);
   } catch (error) {
     if (error instanceof UnsafeUrlError) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
-    if (error instanceof CatalogDiscoveryTimeoutError) {
+    if (
+      error instanceof CatalogDiscoveryTimeoutError ||
+      error instanceof CategoryDiscoveryTimeoutError
+    ) {
       return NextResponse.json({ error: error.message }, { status: 504 });
     }
     if (error instanceof CatalogDiscoveryError) {
@@ -68,7 +78,7 @@ export async function POST(request: Request) {
     return NextResponse.json(
       {
         error:
-          "The sitemap could not be read. Confirm it is public and try again.",
+          "The catalog source could not be read. Confirm it is public and try again.",
       },
       { status: 502 },
     );
