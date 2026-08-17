@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   findVisiblePriceText,
   matchesPurchaseCta,
+  matchesPurchaseInquiry,
   matchesVariantGate,
 } from "@/lib/audit/detection";
 
@@ -40,6 +41,11 @@ describe("purchase CTA detection", () => {
 
   it("rejects unrelated copy", () =>
     expect(matchesPurchaseCta("View details")).toBe(false));
+
+  it.each(["Оставить заявку", "Send inquiry"])(
+    "matches purchase inquiry %s",
+    (value) => expect(matchesPurchaseInquiry(value)).toBe(true),
+  );
 
   it.each([
     "Select size",

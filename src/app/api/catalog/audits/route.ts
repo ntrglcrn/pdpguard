@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import { summarizeBatchItems, type BatchAuditItem } from "@/domain/catalog";
 import { auditRunner } from "@/lib/audit/engine";
 import { runAuditExclusive } from "@/lib/audit/exclusive";
 import { publicAuditFailure } from "@/lib/audit/public-error";
@@ -9,12 +10,12 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const requestSchema = z.object({
-  url: z.string().trim().min(1).max(2_048),
+  urls: z.array(z.string().trim().min(1).max(2_048)).min(1).max(5),
 });
 
 export async function POST(request: Request) {
   const contentLength = Number(request.headers.get("content-length") ?? 0);
-  if (contentLength > 4_096) {
+  if (contentLength > 16_384) {
     return NextResponse.json(
       { error: "The request body is too large." },
       { status: 413 },
@@ -34,18 +35,35 @@ export async function POST(request: Request) {
   const parsed = requestSchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json(
-      { error: "Enter a valid product page URL." },
+      { error: "Select between one and five valid product page URLs." },
       { status: 400 },
     );
   }
 
   try {
-    return NextResponse.json(
-      await runAuditExclusive(() => auditRunner.run(parsed.data.url)),
-    );
+    const batch = await runAuditExclusive(async () => {
+      const startedAt = new Date().toISOString();
+      const items: BatchAuditItem[] = [];
+      for (const url of [...new Set(parsed.data.urls)]) {
+        try {
+          items.push({ url, result: await auditRunner.run(url), error: null });
+        } catch (error) {
+          const failure = publicAuditFailure(error);
+          if (!failure.known) console.error("Batch audit item failed", error);
+          items.push({ url, result: null, error: failure.message });
+        }
+      }
+      return {
+        startedAt,
+        finishedAt: new Date().toISOString(),
+        items,
+        counts: summarizeBatchItems(items),
+      };
+    });
+    return NextResponse.json(batch);
   } catch (error) {
     const failure = publicAuditFailure(error);
-    if (!failure.known) console.error("Audit failed", error);
+    if (!failure.known) console.error("Batch audit failed", error);
     return NextResponse.json(
       { error: failure.message },
       { status: failure.status },

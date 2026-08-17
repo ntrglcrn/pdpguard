@@ -13,8 +13,12 @@ Category discovery is also available as an initial Stage 2.2 preview. It opens
 one public category in the protected mobile browser, scrolls the rendered page,
 and returns at most 100 same-origin links matching common PDP path patterns.
 
-Next: calibrate category discovery across real storefronts, then add a small
-bounded batch audit. Background jobs and persistence wait until synchronous
+A bounded batch can run the existing audit sequentially for up to five manually
+selected URLs. Results remain in the page only; each completed row opens the
+full screenshot, findings, evidence, and recommendations from that audit.
+
+Next: calibrate category discovery and batches across real storefronts, then
+add bounded pagination. Background jobs and persistence wait until synchronous
 batches prove useful and their resource limits are understood.
 
 ## Stage 3 — Ecommerce interaction testing

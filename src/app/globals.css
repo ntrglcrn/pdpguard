@@ -72,7 +72,7 @@ body {
   line-height: 1.5;
 }
 button,
-input {
+input:not([type="checkbox"]) {
   font: inherit;
 }
 button,
@@ -222,14 +222,14 @@ input {
     border-color 160ms,
     box-shadow 160ms;
 }
-input::placeholder {
+input:not([type="checkbox"])::placeholder {
   color: color-mix(in srgb, var(--text-muted) 72%, transparent);
 }
-input:focus-visible {
+input:not([type="checkbox"]):focus-visible {
   border-color: var(--accent);
   box-shadow: 0 0 0 4px var(--focus);
 }
-input[aria-invalid="true"] {
+input:not([type="checkbox"])[aria-invalid="true"] {
   border-color: var(--critical);
 }
 button {
@@ -329,16 +329,123 @@ input:disabled {
   border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--surface-subtle);
-  padding: 8px 8px 8px 2.75rem;
+  padding: 8px;
+  list-style: none;
 }
 .catalog-list li {
   padding: 6px 8px;
   color: var(--text-muted);
   font-size: 0.82rem;
 }
+.catalog-list label {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin: 0;
+  font-weight: 400;
+}
+.catalog-checkbox {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  margin: 2px 0 0;
+  accent-color: var(--accent);
+}
 .catalog-list a {
   overflow-wrap: anywhere;
   color: var(--accent);
+}
+.batch-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+.batch-actions > span {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+.batch-actions .secondary-button {
+  padding: 0 16px;
+}
+.batch-actions .spinner {
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  border-top-color: var(--accent);
+}
+.batch-result {
+  margin-top: 1.25rem;
+  border-top: 1px solid var(--border);
+  padding-top: 1.25rem;
+}
+.batch-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.batch-counts span {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-subtle);
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-weight: 650;
+  padding: 5px 9px;
+}
+.batch-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.batch-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+  text-align: left;
+}
+.batch-table th,
+.batch-table td {
+  border-bottom: 1px solid var(--border);
+  padding: 10px 12px;
+  vertical-align: top;
+}
+.batch-table th {
+  background: var(--surface-subtle);
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.batch-table tr:last-child td {
+  border-bottom: 0;
+}
+.batch-table td:first-child {
+  min-width: 260px;
+}
+.batch-table a {
+  display: block;
+  overflow-wrap: anywhere;
+  color: var(--accent);
+  font-weight: 650;
+}
+.batch-report-button {
+  margin-top: 6px;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+  border-radius: 7px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 0.75rem;
+  font-weight: 650;
+  padding: 4px 8px;
+}
+.batch-report-button:hover {
+  border-color: var(--accent);
+}
+.batch-table small {
+  display: block;
+  margin-top: 4px;
+  color: var(--critical);
 }
 .scan-state {
   background: var(--accent-soft);
@@ -373,6 +480,7 @@ input:disabled {
 
 .results {
   margin-top: 2rem;
+  scroll-margin-top: 80px;
 }
 .result-header {
   padding: clamp(1.25rem, 3vw, 2rem);
@@ -681,6 +789,10 @@ input:disabled {
     align-items: flex-start;
     flex-direction: column;
     gap: 7px;
+  }
+  .batch-actions {
+    align-items: stretch;
+    flex-direction: column;
   }
 }
 

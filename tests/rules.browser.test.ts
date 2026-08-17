@@ -298,6 +298,32 @@ describe("browser audit rules", () => {
     },
   );
 
+  it.each(["Оставить заявку", "Send inquiry"])(
+    "passes the purchase inquiry CTA %s without clicking it",
+    async (label) => {
+      await page.setContent(`
+        <main><h1>Offline boutique product</h1><p class="price">82 980 000 ₸</p>
+          <p>This item is available through a boutique inquiry.</p>
+          <button onclick="window.inquiryClicked=true" style="width:320px;height:52px">${label}</button>
+        </main>
+      `);
+      const finding = (await runAuditRules({ page, mainResponse: null })).find(
+        (item) => item.ruleId === "purchase-cta",
+      );
+      expect(finding).toMatchObject({ status: "passed", severity: "info" });
+      expect(finding?.evidence.join(" ")).toContain("purchase inquiry CTA");
+      expect(finding?.evidence.join(" ")).toContain("purchase-assistance path");
+      expect(
+        await page.evaluate(() =>
+          Boolean(
+            (window as typeof window & { inquiryClicked?: boolean })
+              .inquiryClicked,
+          ),
+        ),
+      ).toBe(false);
+    },
+  );
+
   it("passes an explicitly sold-out disabled CTA", async () => {
     await page.setContent(`
       <main><h1>Product</h1><p class="price">$12</p><div><p>Out of stock</p>

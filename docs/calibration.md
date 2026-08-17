@@ -39,12 +39,13 @@ the order CTA / price / image / structured data.
 |  30 | adidas        | [ZX 8000](https://www.adidas.com/us/zx-8000-shoes/IG2716.html)                                                                               | HTTP 403 response instead of PDP                         | 1 C           | 1 C           | Stops after page availability; PDP rules are not run.                              |
 |  31 | Viled         | [Brunello Cucinelli linen shirt](https://viled.kz/en/item/400178)                                                                            | Direct CTA with app and cookie banners                   | P / P / P / P | P / P / P / P | The banners do not block the primary purchase path.                                |
 |  32 | Viled         | [Brunello Cucinelli cotton shorts](https://viled.kz/en/item/400214)                                                                          | Direct CTA with lazy-loaded product images               | P / P / P / P | P / P / P / P | One earlier run missed the image; repeat loaded it at 310 × 310px.                 |
-|  33 | CDV           | [Ex Nihilo Lust In Paradise](https://cdv.kz/item/406402)                                                                                     | Russian direct CTA                                       | P / P / P / W | P / P / P / W | Product JSON-LD is absent.                                                         |
-|  34 | CDV           | [Kilian Angels' Share Paradis](https://cdv.kz/item/412490)                                                                                   | Russian direct CTA                                       | P / P / P / W | P / P / P / W | Product JSON-LD is absent.                                                         |
+|  33 | Viled         | [Graff Classic necklace](https://viled.kz/item/396335)                                                                                       | Offline-only item with “Оставить заявку” inquiry CTA     | P / P / P / P | P / P / P / P | Inquiry is a valid assisted purchase path; the audit does not click it.            |
+|  34 | CDV           | [Ex Nihilo Lust In Paradise](https://cdv.kz/item/406402)                                                                                     | Russian direct CTA                                       | P / P / P / W | P / P / P / W | Product JSON-LD is absent.                                                         |
+|  35 | CDV           | [Kilian Angels' Share Paradis](https://cdv.kz/item/412490)                                                                                   | Russian direct CTA                                       | P / P / P / W | P / P / P / W | Product JSON-LD is absent.                                                         |
 
 ## Gate result
 
-The matrix now covers 34 URLs across 10 stores. The 28 reachable, manually
+The matrix now covers 35 URLs across 10 stores. The 29 reachable, manually
 labelled PDPs produced zero false Critical findings.
 The three Allbirds Critical findings are expected because a fullscreen region
 gate blocks the purchase path and PDP Guard deliberately does not choose a

@@ -29,6 +29,11 @@ export const VARIANT_GATE_LABELS = [
   "выбрать цвет",
 ] as const;
 
+export const PURCHASE_INQUIRY_LABELS = [
+  "оставить заявку",
+  "send inquiry",
+] as const;
+
 const PRICE_PATTERN =
   /(?:[$€£₸]\s*\d[\d\s.,]*|\d[\d\s.,]*\s*(?:[$€£₸]|(?:USD|EUR|GBP|KZT)\b)|\b(?:USD|EUR|GBP|KZT)\s*\d[\d\s.,]*)/iu;
 
@@ -46,6 +51,13 @@ export function matchesPurchaseCta(value: string): boolean {
 export function matchesVariantGate(value: string): boolean {
   const normalized = normalizeLabel(value);
   return VARIANT_GATE_LABELS.some(
+    (label) => normalized === label || normalized.startsWith(`${label} `),
+  );
+}
+
+export function matchesPurchaseInquiry(value: string): boolean {
+  const normalized = normalizeLabel(value);
+  return PURCHASE_INQUIRY_LABELS.some(
     (label) => normalized === label || normalized.startsWith(`${label} `),
   );
 }

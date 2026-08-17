@@ -5,7 +5,10 @@
 import { FormEvent, useMemo, useState } from "react";
 
 import type { AuditResult, Finding } from "@/domain/audit";
-import type { CatalogDiscoveryResult } from "@/domain/catalog";
+import type {
+  BatchAuditResult,
+  CatalogDiscoveryResult,
+} from "@/domain/catalog";
 
 type ViewState = "initial" | "scanning" | "success" | "error";
 type Filter = "all" | "critical" | "warning" | "passed";
@@ -89,6 +92,10 @@ export default function AuditWorkspace() {
   );
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [catalog, setCatalog] = useState<CatalogDiscoveryResult | null>(null);
+  const [selectedUrls, setSelectedUrls] = useState<string[]>([]);
+  const [batchLoading, setBatchLoading] = useState(false);
+  const [batchError, setBatchError] = useState<string | null>(null);
+  const [batch, setBatch] = useState<BatchAuditResult | null>(null);
 
   const visibleFindings = useMemo(() => {
     if (!result || filter === "all") return result?.findings ?? [];
@@ -163,6 +170,13 @@ export default function AuditWorkspace() {
         );
       }
       setCatalog(payload as CatalogDiscoveryResult);
+      setSelectedUrls(
+        (payload as CatalogDiscoveryResult).sourceType === "category"
+          ? (payload as CatalogDiscoveryResult).pageUrls.slice(0, 5)
+          : [],
+      );
+      setBatch(null);
+      setBatchError(null);
     } catch (caught) {
       setCatalogError(
         caught instanceof Error
@@ -171,6 +185,61 @@ export default function AuditWorkspace() {
       );
     } finally {
       setCatalogLoading(false);
+    }
+  }
+
+  function toggleBatchUrl(pageUrl: string) {
+    setSelectedUrls((current) =>
+      current.includes(pageUrl)
+        ? current.filter((item) => item !== pageUrl)
+        : current.length < 5
+          ? [...current, pageUrl]
+          : current,
+    );
+  }
+
+  function showAuditReport(auditResult: AuditResult) {
+    setResult(auditResult);
+    setFilter("all");
+    setState("success");
+    requestAnimationFrame(() => {
+      const report = document.getElementById("audit-report");
+      report?.focus({ preventScroll: true });
+      report?.scrollIntoView({ block: "start" });
+    });
+  }
+
+  async function runBatchAudits() {
+    if (!selectedUrls.length || selectedUrls.length > 5) return;
+    setBatchLoading(true);
+    setBatchError(null);
+    setBatch(null);
+    setResult(null);
+    if (state === "success") setState("initial");
+    try {
+      const response = await fetch("/api/catalog/audits", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ urls: selectedUrls }),
+      });
+      const payload = (await response.json()) as
+        BatchAuditResult | { error?: string };
+      if (!response.ok) {
+        throw new Error(
+          "error" in payload && payload.error
+            ? payload.error
+            : "Batch audit failed.",
+        );
+      }
+      setBatch(payload as BatchAuditResult);
+    } catch (caught) {
+      setBatchError(
+        caught instanceof Error
+          ? caught.message
+          : "The selected pages could not be audited.",
+      );
+    } finally {
+      setBatchLoading(false);
     }
   }
 
@@ -221,13 +290,16 @@ export default function AuditWorkspace() {
                 value={url}
                 aria-invalid={Boolean(fieldError)}
                 aria-describedby={fieldError ? "url-error" : "url-help"}
-                disabled={state === "scanning"}
+                disabled={state === "scanning" || batchLoading}
                 onChange={(event) => {
                   setUrl(event.target.value);
                   if (fieldError) setFieldError(null);
                 }}
               />
-              <button type="submit" disabled={state === "scanning"}>
+              <button
+                type="submit"
+                disabled={state === "scanning" || batchLoading}
+              >
                 {state === "scanning" ? (
                   <>
                     <span className="spinner" aria-hidden="true" /> Auditing
@@ -298,13 +370,13 @@ export default function AuditWorkspace() {
                 aria-describedby={
                   catalogFieldError ? "catalog-error" : "catalog-help"
                 }
-                disabled={catalogLoading}
+                disabled={catalogLoading || batchLoading}
                 onChange={(event) => {
                   setCatalogUrl(event.target.value);
                   if (catalogFieldError) setCatalogFieldError(null);
                 }}
               />
-              <button type="submit" disabled={catalogLoading}>
+              <button type="submit" disabled={catalogLoading || batchLoading}>
                 {catalogLoading ? (
                   <>
                     <span className="spinner" aria-hidden="true" /> Discovering
@@ -320,7 +392,8 @@ export default function AuditWorkspace() {
               </p>
             ) : (
               <p className="field-help" id="catalog-help">
-                Public HTTP and HTTPS pages only. No audits run yet.
+                Public HTTP and HTTPS pages only. Discovery never starts audits
+                automatically.
               </p>
             )}
           </form>
@@ -353,26 +426,138 @@ export default function AuditWorkspace() {
                 </p>
               )}
               {catalog.pageUrls.length ? (
-                <ol className="catalog-list">
+                <ul className="catalog-list">
                   {catalog.pageUrls.map((pageUrl) => (
                     <li key={pageUrl}>
-                      <a href={pageUrl} target="_blank" rel="noreferrer">
-                        {pageUrl}
-                      </a>
+                      <label>
+                        <input
+                          className="catalog-checkbox"
+                          type="checkbox"
+                          checked={selectedUrls.includes(pageUrl)}
+                          disabled={
+                            batchLoading ||
+                            (!selectedUrls.includes(pageUrl) &&
+                              selectedUrls.length === 5)
+                          }
+                          onChange={() => toggleBatchUrl(pageUrl)}
+                        />
+                        <a href={pageUrl} target="_blank" rel="noreferrer">
+                          {pageUrl}
+                        </a>
+                      </label>
                     </li>
                   ))}
-                </ol>
+                </ul>
               ) : (
                 <p className="catalog-note">
                   No matching URLs were found within the discovery limits.
                 </p>
               )}
+              {catalog.pageUrls.length > 0 && (
+                <div className="batch-actions">
+                  <span>{selectedUrls.length} of 5 selected</span>
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    disabled={
+                      batchLoading ||
+                      state === "scanning" ||
+                      selectedUrls.length === 0
+                    }
+                    onClick={runBatchAudits}
+                  >
+                    {batchLoading ? (
+                      <>
+                        <span className="spinner" aria-hidden="true" /> Auditing
+                        selected pages
+                      </>
+                    ) : (
+                      "Audit selected pages"
+                    )}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {batchError && (
+            <div className="error-state" role="alert">
+              <strong>Batch audit could not be completed</strong>
+              <p>{batchError}</p>
+            </div>
+          )}
+
+          {batch && (
+            <div className="batch-result" aria-live="polite">
+              <div className="batch-counts" aria-label="Batch audit summary">
+                <span>{batch.counts.completed} completed</span>
+                <span>{batch.counts.critical} critical</span>
+                <span>{batch.counts.warning} warnings</span>
+                <span>{batch.counts.passed} passed</span>
+                <span>{batch.counts.failed} failed</span>
+              </div>
+              <div className="batch-table-wrap">
+                <table className="batch-table">
+                  <thead>
+                    <tr>
+                      <th>Page</th>
+                      <th>Status</th>
+                      <th>Critical</th>
+                      <th>Warnings</th>
+                      <th>Passed</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {batch.items.map((item) => {
+                      const status = item.result?.summary.status;
+                      return (
+                        <tr key={item.url}>
+                          <td>
+                            <a
+                              href={item.result?.finalUrl ?? item.url}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              {item.result?.pageTitle || item.url}
+                            </a>
+                            {item.result && (
+                              <button
+                                className="batch-report-button"
+                                type="button"
+                                onClick={() => showAuditReport(item.result!)}
+                              >
+                                View detailed report
+                              </button>
+                            )}
+                            {item.error && <small>{item.error}</small>}
+                          </td>
+                          <td>
+                            <span
+                              className={`status-badge status-${status ?? "critical"}`}
+                            >
+                              {status ?? "failed"}
+                            </span>
+                          </td>
+                          <td>{item.result?.summary.counts.critical ?? "—"}</td>
+                          <td>{item.result?.summary.counts.warning ?? "—"}</td>
+                          <td>{item.result?.summary.counts.passed ?? "—"}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
         </section>
 
         {state === "success" && result && (
-          <section className="results" aria-labelledby="results-title">
+          <section
+            className="results"
+            id="audit-report"
+            tabIndex={-1}
+            aria-labelledby="results-title"
+          >
             <div className="result-header">
               <div className="result-title-row">
                 <span

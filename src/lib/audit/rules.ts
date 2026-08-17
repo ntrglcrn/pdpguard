@@ -2,6 +2,7 @@ import type { AuditRule, AuditRuleContext, Finding } from "@/domain/audit";
 import {
   findVisiblePriceText,
   PURCHASE_CTA_LABELS,
+  PURCHASE_INQUIRY_LABELS,
   VARIANT_GATE_LABELS,
 } from "@/lib/audit/detection";
 import { parseProductJsonLd } from "@/lib/audit/json-ld";
@@ -13,7 +14,7 @@ export const pageAvailabilityRule: AuditRule = async ({
   mainResponse,
 }) => {
   const body = await page.evaluate(
-    ({ directLabels, gateLabels }) => {
+    ({ directLabels, gateLabels, inquiryLabels }) => {
       const element = document.body;
       if (!element)
         return {
@@ -26,7 +27,7 @@ export const pageAvailabilityRule: AuditRule = async ({
       const text = element.innerText.trim();
       const normalize = (value: string) =>
         value.replace(/\s+/g, " ").trim().toLowerCase();
-      const labels = [...directLabels, ...gateLabels];
+      const labels = [...directLabels, ...gateLabels, ...inquiryLabels];
       const hasPurchaseControl = Array.from(
         document.querySelectorAll<HTMLElement>(
           "button, [role='button'], input[type='button'], input[type='submit'], a",
@@ -76,6 +77,7 @@ export const pageAvailabilityRule: AuditRule = async ({
     {
       directLabels: PURCHASE_CTA_LABELS,
       gateLabels: VARIANT_GATE_LABELS,
+      inquiryLabels: PURCHASE_INQUIRY_LABELS,
     },
   );
   const status = mainResponse?.status() ?? null;
@@ -319,7 +321,7 @@ export const purchaseCtaRule: AuditRule = async ({ page }) => {
   );
 
   const selected = await page.evaluate(
-    async ({ directLabels, gateLabels, structuredSoldOut }) => {
+    async ({ directLabels, gateLabels, inquiryLabels, structuredSoldOut }) => {
       const normalize = (value: string) =>
         value.replace(/\s+/g, " ").trim().toLowerCase();
       const labelOf = (element: HTMLElement) =>
@@ -391,7 +393,9 @@ export const purchaseCtaRule: AuditRule = async ({ page }) => {
             ? ("direct CTA" as const)
             : matches(label, gateLabels)
               ? ("variant gate" as const)
-              : null;
+              : matches(label, inquiryLabels)
+                ? ("purchase inquiry CTA" as const)
+                : null;
           if (!type) return null;
 
           const rect = element.getBoundingClientRect();
@@ -431,7 +435,11 @@ export const purchaseCtaRule: AuditRule = async ({ page }) => {
             (outside ? 1_500 : 0) -
             (ariaOnly && small ? 1_000 : 0) -
             (!rendered(element) ? 1_500 : 0) +
-            (type === "direct CTA" ? 50 : 0);
+            (type === "direct CTA"
+              ? 50
+              : type === "purchase inquiry CTA"
+                ? 25
+                : 0);
           return {
             element,
             label,
@@ -447,7 +455,7 @@ export const purchaseCtaRule: AuditRule = async ({ page }) => {
           ): candidate is {
             element: HTMLElement;
             label: string;
-            type: "direct CTA" | "variant gate";
+            type: "direct CTA" | "variant gate" | "purchase inquiry CTA";
             score: number;
             primaryEligible: boolean;
           } => Boolean(candidate),
@@ -542,6 +550,7 @@ export const purchaseCtaRule: AuditRule = async ({ page }) => {
     {
       directLabels: PURCHASE_CTA_LABELS,
       gateLabels: VARIANT_GATE_LABELS,
+      inquiryLabels: PURCHASE_INQUIRY_LABELS,
       structuredSoldOut,
     },
   );
@@ -562,7 +571,7 @@ export const purchaseCtaRule: AuditRule = async ({ page }) => {
   const reason = !selected
     ? structuredSoldOut
       ? "Product structured data explicitly reports that the item is out of stock."
-      : "No supported direct CTA or variant gate was found."
+      : "No supported direct CTA, variant gate or purchase inquiry was found."
     : selected.soldOut && (!selected.overlapped || selected.edgeBanner)
       ? "The product is explicitly marked sold out; an enabled purchase control is not expected."
       : !selected.visible
@@ -575,7 +584,9 @@ export const purchaseCtaRule: AuditRule = async ({ page }) => {
               ? "The selected purchase control is blocked at its center point."
               : selected.type === "variant gate"
                 ? "The control is visible and enabled; variant selection is required before purchase."
-                : "The direct purchase control is visible, enabled and unobstructed.";
+                : selected.type === "purchase inquiry CTA"
+                  ? "The control is visible and enabled; it provides a purchase-assistance path."
+                  : "The direct purchase control is visible, enabled and unobstructed.";
 
   return finding({
     id: "purchase-cta",
