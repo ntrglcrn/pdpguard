@@ -1,3 +1,5 @@
+import { gunzipSync } from "node:zlib";
+
 import type { CatalogDiscoveryResult } from "@/domain/catalog";
 import {
   systemDnsResolver,
@@ -88,9 +90,8 @@ async function readLimitedBody(response: Response, remainingBytes: number) {
   if (!response.body) return { text: "", bytes: 0 };
 
   const reader = response.body.getReader();
-  const decoder = new TextDecoder();
+  const chunks: Uint8Array[] = [];
   let bytes = 0;
-  let text = "";
   try {
     while (true) {
       const { done, value } = await reader.read();
@@ -99,10 +100,19 @@ async function readLimitedBody(response: Response, remainingBytes: number) {
       if (bytes > remainingBytes) {
         throw new CatalogDiscoveryError("The sitemap is too large to process.");
       }
-      text += decoder.decode(value, { stream: true });
+      chunks.push(value);
     }
-    text += decoder.decode();
-    return { text, bytes };
+    let body = Buffer.concat(chunks, bytes);
+    if (body[0] === 0x1f && body[1] === 0x8b) {
+      try {
+        body = gunzipSync(body, { maxOutputLength: remainingBytes });
+      } catch {
+        throw new CatalogDiscoveryError(
+          "The compressed sitemap is invalid or too large.",
+        );
+      }
+    }
+    return { text: new TextDecoder().decode(body), bytes: body.byteLength };
   } finally {
     await reader.cancel().catch(() => undefined);
   }
@@ -162,7 +172,11 @@ export async function discoverCatalog(
   let rootUrl = input;
 
   try {
-    while (queue.length && seenSitemaps.size < MAX_SITEMAPS) {
+    while (
+      queue.length &&
+      seenSitemaps.size < MAX_SITEMAPS &&
+      pageUrls.size < MAX_PAGE_URLS
+    ) {
       const next = queue.shift();
       if (!next) break;
       const requestedUrl = (await validatePublicUrl(next.url, resolver)).href;

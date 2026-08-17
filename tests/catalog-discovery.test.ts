@@ -1,3 +1,5 @@
+import { gzipSync } from "node:zlib";
+
 import { describe, expect, it, vi } from "vitest";
 
 import { discoverCatalog } from "@/lib/catalog-discovery";
@@ -62,6 +64,30 @@ describe("discoverCatalog", () => {
       inspectedSitemaps: 2,
     });
     expect(fetcher).toHaveBeenCalledTimes(3);
+  });
+
+  it("reads gzip-compressed child sitemaps", async () => {
+    const compressed = gzipSync(
+      `<urlset><url><loc>https://shop.example/item/42</loc></url></urlset>`,
+    );
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        new Response(
+          `<sitemapindex><sitemap><loc>https://shop.example/products.xml.gz</loc></sitemap></sitemapindex>`,
+        ),
+      )
+      .mockResolvedValueOnce(new Response(new Uint8Array(compressed)));
+
+    await expect(
+      discoverCatalog("https://shop.example/sitemap.xml", {
+        resolver: publicResolver,
+        fetcher,
+      }),
+    ).resolves.toMatchObject({
+      pageUrls: ["https://shop.example/item/42"],
+      inspectedSitemaps: 2,
+    });
   });
 
   it("blocks a redirect to a private address before fetching it", async () => {
