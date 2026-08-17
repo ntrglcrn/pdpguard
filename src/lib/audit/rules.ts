@@ -12,22 +12,78 @@ export const pageAvailabilityRule: AuditRule = async ({
   page,
   mainResponse,
 }) => {
-  const body = await page.evaluate(() => {
-    const element = document.body;
-    if (!element) return { visible: false, textLength: 0 };
-    const style = getComputedStyle(element);
-    const rect = element.getBoundingClientRect();
-    return {
-      visible:
-        style.display !== "none" &&
-        style.visibility !== "hidden" &&
-        rect.height > 0,
-      textLength: element.innerText.trim().length,
-    };
-  });
+  const body = await page.evaluate(
+    ({ directLabels, gateLabels }) => {
+      const element = document.body;
+      if (!element)
+        return {
+          visible: false,
+          textLength: 0,
+          accessChallenge: false,
+        };
+      const style = getComputedStyle(element);
+      const rect = element.getBoundingClientRect();
+      const text = element.innerText.trim();
+      const normalize = (value: string) =>
+        value.replace(/\s+/g, " ").trim().toLowerCase();
+      const labels = [...directLabels, ...gateLabels];
+      const hasPurchaseControl = Array.from(
+        document.querySelectorAll<HTMLElement>(
+          "button, [role='button'], input[type='button'], input[type='submit'], a",
+        ),
+      ).some((control) => {
+        const label = normalize(
+          control instanceof HTMLInputElement
+            ? control.value
+            : control.innerText || control.getAttribute("aria-label") || "",
+        );
+        return labels.some(
+          (candidate) =>
+            label === candidate || label.startsWith(`${candidate} `),
+        );
+      });
+      const hasLargeImage = Array.from(document.images).some((image) => {
+        const imageRect = image.getBoundingClientRect();
+        return imageRect.width >= 180 && imageRect.height >= 180;
+      });
+      const hasProductJsonLd = Array.from(
+        document.querySelectorAll("script[type='application/ld+json']"),
+      ).some((script) => /"Product(?:Group)?"/.test(script.textContent || ""));
+      const hasPrice =
+        /(?:[$€£₸]\s*\d|\d[\d\s.,]*\s*(?:[$€£₸]|USD|EUR|GBP|KZT)\b|\b(?:USD|EUR|GBP|KZT)\s*\d)/iu.test(
+          text,
+        );
+      const pdpSignalCount = [
+        hasPurchaseControl,
+        hasLargeImage,
+        hasProductJsonLd,
+        hasPrice,
+      ].filter(Boolean).length;
+      const challengeText = `${document.title} ${text.slice(0, 10_000)}`;
+      return {
+        visible:
+          style.display !== "none" &&
+          style.visibility !== "hidden" &&
+          rect.height > 0,
+        textLength: text.length,
+        accessChallenge:
+          pdpSignalCount < 2 &&
+          /access denied|verify (?:you are|that you are) (?:a )?human|are you (?:a )?robot|captcha|unusual traffic|checking your browser|security verification|request (?:has been )?blocked|temporarily blocked|enable javascript and cookies to continue|press and hold/i.test(
+            challengeText,
+          ),
+      };
+    },
+    {
+      directLabels: PURCHASE_CTA_LABELS,
+      gateLabels: VARIANT_GATE_LABELS,
+    },
+  );
   const status = mainResponse?.status() ?? null;
   const passed =
-    (status === null || status < 400) && body.visible && body.textLength > 0;
+    (status === null || status < 400) &&
+    body.visible &&
+    body.textLength > 0 &&
+    !body.accessChallenge;
 
   return finding({
     id: "page-availability",
@@ -43,10 +99,15 @@ export const pageAvailabilityRule: AuditRule = async ({
         ? "No HTTP status was available."
         : `Main response status: ${status}.`,
       `Visible body text: ${body.textLength} characters.`,
+      ...(body.accessChallenge
+        ? ["An access challenge was detected without enough PDP signals."]
+        : []),
     ],
     recommendation: passed
       ? "No action is required."
-      : "Confirm the product URL is public and returns a successful HTML document.",
+      : body.accessChallenge
+        ? "Confirm the storefront allows automated browsers to load the public PDP."
+        : "Confirm the product URL is public and returns a successful HTML document.",
   });
 };
 
@@ -337,7 +398,7 @@ export const purchaseCtaRule: AuditRule = async ({ page }) => {
           const point = center(element);
           const ancestry = Array.from(
             (function* () {
-              let current: HTMLElement | null = element;
+              let current: HTMLElement | null = element.parentElement;
               for (let depth = 0; current && depth < 8; depth += 1) {
                 yield current;
                 current = current.parentElement;
@@ -740,7 +801,10 @@ export async function runAuditRules(
   context: AuditRuleContext,
 ): Promise<Finding[]> {
   await dismissObviousOverlays(context.page);
-  const findings: Finding[] = [];
-  for (const rule of auditRules) findings.push(await rule(context));
+  const availability = await pageAvailabilityRule(context);
+  if (availability.status === "failed") return [availability];
+
+  const findings: Finding[] = [availability];
+  for (const rule of auditRules.slice(1)) findings.push(await rule(context));
   return findings;
 }
