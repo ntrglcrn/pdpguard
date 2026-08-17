@@ -1,6 +1,6 @@
 # PDP Guard
 
-PDP Guard is a local MVP for auditing one public ecommerce product page at a time. It opens the page in a mobile Chromium viewport, runs deterministic checks, captures a full-page screenshot, and presents evidence-oriented findings.
+PDP Guard is a local MVP for auditing one public ecommerce product page at a time. It opens the page in a mobile Chromium viewport, runs deterministic checks, captures a full-page screenshot, and presents evidence-oriented findings. It can also preview page URLs from a public XML sitemap without running them.
 
 ## Requirements
 
@@ -44,8 +44,9 @@ Screenshots are stored under `.runtime/screenshots`, excluded from Git, and remo
 ## MVP limitations
 
 - One URL and one in-process audit at a time; there is no queue or worker.
+- Sitemap discovery is a bounded preview: at most 10 sitemap files, 5 MB of decompressed XML, and 200 page URLs from validated sitemap origins. It does not classify or audit the URLs.
 - Full-page captures are rejected above 20,000 CSS pixels to bound memory use.
-- Product-page classification, cart interaction, authentication, catalog scans, visual regression, AI, billing, and integrations are out of scope.
+- Product-page classification, batch catalog scans, cart interaction, authentication, visual regression, AI, billing, and integrations are out of scope.
 - Rules use deliberately explainable heuristics and can produce false positives or negatives on unusual storefronts.
 - Network requests are checked against local/private/reserved address ranges before navigation and at request time. This materially reduces SSRF risk, but a hostile environment with DNS rebinding or compromised DNS requires infrastructure-level egress controls before internet deployment.
 - The app is intended for trusted local use. Do not expose this MVP directly to the public internet without authentication, rate limiting, isolated browser workers, and network sandboxing.

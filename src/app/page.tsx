@@ -5,6 +5,7 @@
 import { FormEvent, useMemo, useState } from "react";
 
 import type { AuditResult, Finding } from "@/domain/audit";
+import type { CatalogDiscoveryResult } from "@/domain/catalog";
 
 type ViewState = "initial" | "scanning" | "success" | "error";
 type Filter = "all" | "critical" | "warning" | "passed";
@@ -16,8 +17,11 @@ const filters: { id: Filter; label: string }[] = [
   { id: "passed", label: "Passed" },
 ];
 
-function clientValidation(value: string): string | null {
-  if (!value.trim()) return "Enter a product page URL.";
+function clientValidation(
+  value: string,
+  label = "product page",
+): string | null {
+  if (!value.trim()) return `Enter a ${label} URL.`;
   if (value.length > 2_048) return "The URL is too long.";
   try {
     const url = new URL(value);
@@ -78,6 +82,13 @@ export default function AuditWorkspace() {
   const [state, setState] = useState<ViewState>("initial");
   const [result, setResult] = useState<AuditResult | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
+  const [sitemapUrl, setSitemapUrl] = useState("");
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [catalogFieldError, setCatalogFieldError] = useState<string | null>(
+    null,
+  );
+  const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [catalog, setCatalog] = useState<CatalogDiscoveryResult | null>(null);
 
   const visibleFindings = useMemo(() => {
     if (!result || filter === "all") return result?.findings ?? [];
@@ -121,6 +132,42 @@ export default function AuditWorkspace() {
           : "The audit could not be completed.",
       );
       setState("error");
+    }
+  }
+
+  async function discoverPages(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const validationError = clientValidation(sitemapUrl.trim(), "sitemap");
+    setCatalogFieldError(validationError);
+    if (validationError) return;
+
+    setCatalogLoading(true);
+    setCatalogError(null);
+    setCatalog(null);
+    try {
+      const response = await fetch("/api/catalog/discover", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: sitemapUrl.trim() }),
+      });
+      const payload = (await response.json()) as
+        CatalogDiscoveryResult | { error?: string };
+      if (!response.ok) {
+        throw new Error(
+          "error" in payload && payload.error
+            ? payload.error
+            : "Sitemap discovery failed.",
+        );
+      }
+      setCatalog(payload as CatalogDiscoveryResult);
+    } catch (caught) {
+      setCatalogError(
+        caught instanceof Error
+          ? caught.message
+          : "The sitemap could not be read.",
+      );
+    } finally {
+      setCatalogLoading(false);
     }
   }
 
@@ -216,6 +263,101 @@ export default function AuditWorkspace() {
             <div className="error-state" role="alert">
               <strong>Audit could not be completed</strong>
               <p>{error}</p>
+            </div>
+          )}
+        </section>
+
+        <section className="catalog-panel" aria-labelledby="catalog-title">
+          <div className="panel-heading">
+            <div>
+              <p className="eyebrow">Catalog discovery</p>
+              <h2 id="catalog-title">Find pages from a sitemap</h2>
+              <p>
+                Preview up to 200 page URLs before batch auditing is enabled.
+              </p>
+            </div>
+            <span className="viewport-chip">Stage 2</span>
+          </div>
+
+          <form onSubmit={discoverPages} noValidate>
+            <label htmlFor="sitemap-url">Sitemap URL</label>
+            <div className="input-row">
+              <input
+                id="sitemap-url"
+                name="sitemapUrl"
+                type="url"
+                inputMode="url"
+                autoComplete="url"
+                placeholder="https://store.example/sitemap.xml"
+                value={sitemapUrl}
+                aria-invalid={Boolean(catalogFieldError)}
+                aria-describedby={
+                  catalogFieldError ? "sitemap-error" : "sitemap-help"
+                }
+                disabled={catalogLoading}
+                onChange={(event) => {
+                  setSitemapUrl(event.target.value);
+                  if (catalogFieldError) setCatalogFieldError(null);
+                }}
+              />
+              <button type="submit" disabled={catalogLoading}>
+                {catalogLoading ? (
+                  <>
+                    <span className="spinner" aria-hidden="true" /> Discovering
+                  </>
+                ) : (
+                  "Discover pages"
+                )}
+              </button>
+            </div>
+            {catalogFieldError ? (
+              <p className="field-error" id="sitemap-error" role="alert">
+                {catalogFieldError}
+              </p>
+            ) : (
+              <p className="field-help" id="sitemap-help">
+                Public HTTP and HTTPS sitemaps only. No audits run yet.
+              </p>
+            )}
+          </form>
+
+          {catalogError && (
+            <div className="error-state" role="alert">
+              <strong>Sitemap could not be read</strong>
+              <p>{catalogError}</p>
+            </div>
+          )}
+
+          {catalog && (
+            <div className="catalog-result" aria-live="polite">
+              <div className="catalog-summary">
+                <strong>{catalog.pageUrls.length} pages found</strong>
+                <span>
+                  {catalog.inspectedSitemaps} sitemap
+                  {catalog.inspectedSitemaps === 1 ? "" : "s"} inspected
+                </span>
+              </div>
+              {catalog.truncated && (
+                <p className="catalog-note">
+                  Result limited for this local preview.
+                </p>
+              )}
+              {catalog.pageUrls.length ? (
+                <ol className="catalog-list">
+                  {catalog.pageUrls.map((pageUrl) => (
+                    <li key={pageUrl}>
+                      <a href={pageUrl} target="_blank" rel="noreferrer">
+                        {pageUrl}
+                      </a>
+                    </li>
+                  ))}
+                </ol>
+              ) : (
+                <p className="catalog-note">
+                  This sitemap contains no page URLs within the discovery
+                  limits.
+                </p>
+              )}
             </div>
           )}
         </section>
