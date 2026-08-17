@@ -1,0 +1,657 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "PDP-AVAIL-001",
+      "title": "Production PDP returns HTTP 500",
+      "kind": "known-defect",
+      "source": {
+        "type": "github-issue",
+        "url": "https://github.com/medusajs/nextjs-starter-medusa/issues/391",
+        "capturedAt": "2026-08-17"
+      },
+      "platform": "medusa",
+      "pageType": "pdp",
+      "stability": "deterministic",
+      "fixture": {
+        "path": "benchmark/fixtures/server-error.html",
+        "httpStatus": 500
+      },
+      "viewport": { "width": 390, "height": 844 },
+      "expected": {
+        "supported": true,
+        "findings": [
+          {
+            "ruleId": "page-availability",
+            "status": "failed",
+            "severity": "critical"
+          }
+        ]
+      },
+      "businessImpact": "Shoppers cannot open any product page in the production build.",
+      "evidence": ["benchmark/fixtures/server-error.html"],
+      "notes": "Minimal HTTP 500 response based on the production-only Medusa PDP failure."
+    },
+    {
+      "id": "PDP-PRICE-001",
+      "title": "Request-quote PDP has no visible price",
+      "kind": "known-defect",
+      "source": {
+        "type": "github-issue",
+        "url": "https://github.com/woocommerce/woocommerce/issues/14854",
+        "capturedAt": "2026-08-17"
+      },
+      "platform": "woocommerce",
+      "pageType": "pdp",
+      "stability": "deterministic",
+      "fixture": { "path": "benchmark/fixtures/missing-price.html" },
+      "viewport": { "width": 390, "height": 844 },
+      "expected": {
+        "supported": true,
+        "findings": [
+          {
+            "ruleId": "product-price",
+            "status": "failed",
+            "severity": "warning"
+          }
+        ]
+      },
+      "businessImpact": "Shoppers cannot see a purchase price and search results may incorrectly present the item as free.",
+      "evidence": ["benchmark/fixtures/missing-price.html"],
+      "notes": "Reproduces the reported blank UI price while WooCommerce emits a zero structured price."
+    },
+    {
+      "id": "PDP-IMAGE-001",
+      "title": "Broken main catalog image",
+      "kind": "known-defect",
+      "source": {
+        "type": "github-issue",
+        "url": "https://github.com/magento/magento2/issues/27891",
+        "capturedAt": "2026-08-17"
+      },
+      "platform": "magento",
+      "pageType": "pdp",
+      "stability": "deterministic",
+      "fixture": { "path": "benchmark/fixtures/broken-main-image.html" },
+      "viewport": { "width": 390, "height": 844 },
+      "expected": {
+        "supported": true,
+        "findings": [
+          {
+            "ruleId": "product-image",
+            "status": "failed",
+            "severity": "warning"
+          },
+          {
+            "ruleId": "broken-images",
+            "status": "failed",
+            "severity": "warning"
+          }
+        ]
+      },
+      "businessImpact": "The shopper sees no usable primary product image.",
+      "evidence": ["benchmark/fixtures/broken-main-image.html"],
+      "notes": "Reproduces the reported Magento PDP where the cached main image link is broken."
+    },
+    {
+      "id": "PDP-IMAGE-002",
+      "title": "Broken gallery image beside a valid main image",
+      "kind": "known-defect",
+      "source": {
+        "type": "github-issue",
+        "url": "https://github.com/magento/magento2/issues/27891",
+        "capturedAt": "2026-08-17"
+      },
+      "platform": "magento",
+      "pageType": "pdp",
+      "stability": "deterministic",
+      "fixture": { "path": "benchmark/fixtures/broken-gallery-image.html" },
+      "viewport": { "width": 390, "height": 844 },
+      "expected": {
+        "supported": true,
+        "findings": [
+          {
+            "ruleId": "broken-images",
+            "status": "failed",
+            "severity": "warning"
+          }
+        ]
+      },
+      "businessImpact": "Gallery media fails even though the primary product image remains visible.",
+      "evidence": ["benchmark/fixtures/broken-gallery-image.html"],
+      "notes": "Covers the same report's second symptom: many catalog image links fail independently."
+    },
+    {
+      "id": "PDP-CART-001",
+      "title": "Add to cart remains loading without confirmation",
+      "kind": "known-defect",
+      "source": {
+        "type": "github-issue",
+        "url": "https://github.com/Shopify/dawn/issues/849",
+        "capturedAt": "2026-08-17"
+      },
+      "platform": "shopify-dawn",
+      "pageType": "pdp",
+      "stability": "deterministic",
+      "fixture": {
+        "path": "benchmark/fixtures/add-to-cart-no-confirmation.html",
+        "interaction": true
+      },
+      "viewport": { "width": 390, "height": 844 },
+      "expected": {
+        "supported": true,
+        "findings": [
+          {
+            "ruleId": "add-to-cart-interaction",
+            "status": "failed",
+            "severity": "warning"
+          }
+        ]
+      },
+      "businessImpact": "A shopper cannot tell whether the item reached the cart and cannot continue reliably.",
+      "evidence": ["benchmark/fixtures/add-to-cart-no-confirmation.html"],
+      "notes": "Models Dawn 2.1.0 leaving the control busy forever without opening its cart drawer."
+    },
+    {
+      "id": "PDP-CART-002",
+      "title": "Cart line creation fails without visible success",
+      "kind": "known-defect",
+      "source": {
+        "type": "github-issue",
+        "url": "https://github.com/medusajs/medusa/issues/13900",
+        "capturedAt": "2026-08-17"
+      },
+      "platform": "medusa",
+      "pageType": "pdp",
+      "stability": "deterministic",
+      "fixture": {
+        "path": "benchmark/fixtures/add-to-cart-no-confirmation.html",
+        "interaction": true
+      },
+      "viewport": { "width": 390, "height": 844 },
+      "expected": {
+        "supported": true,
+        "findings": [
+          {
+            "ruleId": "add-to-cart-interaction",
+            "status": "failed",
+            "severity": "warning"
+          }
+        ]
+      },
+      "businessImpact": "The item is not added, blocking the purchase flow.",
+      "evidence": ["benchmark/fixtures/add-to-cart-no-confirmation.html"],
+      "notes": "Captures the observable PDP outcome of the reported createLineItem failure."
+    },
+    {
+      "id": "PDP-SCHEMA-001",
+      "title": "Free grouped product emits no Product schema",
+      "kind": "known-defect",
+      "source": {
+        "type": "github-issue",
+        "url": "https://github.com/woocommerce/woocommerce/issues/25969",
+        "capturedAt": "2026-08-17"
+      },
+      "platform": "woocommerce",
+      "pageType": "pdp",
+      "stability": "deterministic",
+      "fixture": { "path": "benchmark/fixtures/missing-jsonld.html" },
+      "viewport": { "width": 390, "height": 844 },
+      "expected": {
+        "supported": true,
+        "findings": [
+          {
+            "ruleId": "structured-product-data",
+            "status": "failed",
+            "severity": "warning"
+          }
+        ]
+      },
+      "businessImpact": "Search engines receive no Product entity for the grouped product.",
+      "evidence": ["benchmark/fixtures/missing-jsonld.html"],
+      "notes": "The issue explicitly reports no schema when grouped child prices are zero."
+    },
+    {
+      "id": "PDP-SCHEMA-002",
+      "title": "KazakhYuvelir Invictus bracelet lacks Product JSON-LD",
+      "kind": "known-defect",
+      "source": {
+        "type": "public-pdp",
+        "url": "https://kazakhyuvelir.kz/product/bracelet-invictus-m064456-0003",
+        "capturedAt": "2026-08-17"
+      },
+      "platform": "custom-storefront",
+      "pageType": "pdp",
+      "stability": "deterministic",
+      "fixture": { "path": "benchmark/fixtures/missing-jsonld.html" },
+      "viewport": { "width": 390, "height": 844 },
+      "expected": {
+        "supported": true,
+        "findings": [
+          {
+            "ruleId": "structured-product-data",
+            "status": "failed",
+            "severity": "warning"
+          }
+        ]
+      },
+      "businessImpact": "The product is ineligible for complete Product rich-result metadata.",
+      "evidence": ["benchmark/fixtures/missing-jsonld.html"],
+      "notes": "Confirmed by the protected audit and manually reviewed screenshot."
+    },
+    {
+      "id": "PDP-SCHEMA-003",
+      "title": "KazakhYuvelir Zere necklace lacks Product JSON-LD",
+      "kind": "known-defect",
+      "source": {
+        "type": "public-pdp",
+        "url": "https://kazakhyuvelir.kz/product/necklace-zere-544010501293",
+        "capturedAt": "2026-08-17"
+      },
+      "platform": "custom-storefront",
+      "pageType": "pdp",
+      "stability": "deterministic",
+      "fixture": { "path": "benchmark/fixtures/missing-jsonld.html" },
+      "viewport": { "width": 390, "height": 844 },
+      "expected": {
+        "supported": true,
+        "findings": [
+          {
+            "ruleId": "structured-product-data",
+            "status": "failed",
+            "severity": "warning"
+          }
+        ]
+      },
+      "businessImpact": "The product is ineligible for complete Product rich-result metadata.",
+      "evidence": ["benchmark/fixtures/missing-jsonld.html"],
+      "notes": "A second real PDP confirms the defect is not isolated to one item."
+    },
+    {
+      "id": "PDP-SCHEMA-004",
+      "title": "KazakhYuvelir Invictus pendant lacks Product JSON-LD",
+      "kind": "known-defect",
+      "source": {
+        "type": "public-pdp",
+        "url": "https://kazakhyuvelir.kz/product/pendant-invictus-m064429-0004",
+        "capturedAt": "2026-08-17"
+      },
+      "platform": "custom-storefront",
+      "pageType": "pdp",
+      "stability": "deterministic",
+      "fixture": { "path": "benchmark/fixtures/missing-jsonld.html" },
+      "viewport": { "width": 390, "height": 844 },
+      "expected": {
+        "supported": true,
+        "findings": [
+          {
+            "ruleId": "structured-product-data",
+            "status": "failed",
+            "severity": "warning"
+          }
+        ]
+      },
+      "businessImpact": "The product is ineligible for complete Product rich-result metadata.",
+      "evidence": ["benchmark/fixtures/missing-jsonld.html"],
+      "notes": "Captured from the existing manually labelled calibration matrix."
+    },
+    {
+      "id": "PDP-SCHEMA-005",
+      "title": "KazakhYuvelir Invictus ring lacks Product JSON-LD",
+      "kind": "known-defect",
+      "source": {
+        "type": "public-pdp",
+        "url": "https://kazakhyuvelir.kz/product/ring-invictus-m064447-0002",
+        "capturedAt": "2026-08-17"
+      },
+      "platform": "custom-storefront",
+      "pageType": "pdp",
+      "stability": "deterministic",
+      "fixture": { "path": "benchmark/fixtures/missing-jsonld.html" },
+      "viewport": { "width": 390, "height": 844 },
+      "expected": {
+        "supported": true,
+        "findings": [
+          {
+            "ruleId": "structured-product-data",
+            "status": "failed",
+            "severity": "warning"
+          }
+        ]
+      },
+      "businessImpact": "The product is ineligible for complete Product rich-result metadata.",
+      "evidence": ["benchmark/fixtures/missing-jsonld.html"],
+      "notes": "Captured from the existing manually labelled calibration matrix."
+    },
+    {
+      "id": "PDP-SCHEMA-006",
+      "title": "KazakhYuvelir ring 160 lacks Product JSON-LD",
+      "kind": "known-defect",
+      "source": {
+        "type": "public-pdp",
+        "url": "https://kazakhyuvelir.kz/product/ring-644010500160",
+        "capturedAt": "2026-08-17"
+      },
+      "platform": "custom-storefront",
+      "pageType": "pdp",
+      "stability": "deterministic",
+      "fixture": { "path": "benchmark/fixtures/missing-jsonld.html" },
+      "viewport": { "width": 390, "height": 844 },
+      "expected": {
+        "supported": true,
+        "findings": [
+          {
+            "ruleId": "structured-product-data",
+            "status": "failed",
+            "severity": "warning"
+          }
+        ]
+      },
+      "businessImpact": "The product is ineligible for complete Product rich-result metadata.",
+      "evidence": ["benchmark/fixtures/missing-jsonld.html"],
+      "notes": "Captured from the existing manually labelled calibration matrix."
+    },
+    {
+      "id": "PDP-SCHEMA-007",
+      "title": "KazakhYuvelir earrings 180 lack Product JSON-LD",
+      "kind": "known-defect",
+      "source": {
+        "type": "public-pdp",
+        "url": "https://kazakhyuvelir.kz/product/earrings-1144010500180",
+        "capturedAt": "2026-08-17"
+      },
+      "platform": "custom-storefront",
+      "pageType": "pdp",
+      "stability": "deterministic",
+      "fixture": { "path": "benchmark/fixtures/missing-jsonld.html" },
+      "viewport": { "width": 390, "height": 844 },
+      "expected": {
+        "supported": true,
+        "findings": [
+          {
+            "ruleId": "structured-product-data",
+            "status": "failed",
+            "severity": "warning"
+          }
+        ]
+      },
+      "businessImpact": "The product is ineligible for complete Product rich-result metadata.",
+      "evidence": ["benchmark/fixtures/missing-jsonld.html"],
+      "notes": "Captured from the existing manually labelled calibration matrix."
+    },
+    {
+      "id": "PDP-SCHEMA-008",
+      "title": "CDV Ex Nihilo PDP lacks Product JSON-LD",
+      "kind": "known-defect",
+      "source": {
+        "type": "public-pdp",
+        "url": "https://cdv.kz/item/406402",
+        "capturedAt": "2026-08-17"
+      },
+      "platform": "custom-storefront",
+      "pageType": "pdp",
+      "stability": "deterministic",
+      "fixture": { "path": "benchmark/fixtures/missing-jsonld.html" },
+      "viewport": { "width": 390, "height": 844 },
+      "expected": {
+        "supported": true,
+        "findings": [
+          {
+            "ruleId": "structured-product-data",
+            "status": "failed",
+            "severity": "warning"
+          }
+        ]
+      },
+      "businessImpact": "The product is ineligible for complete Product rich-result metadata.",
+      "evidence": ["benchmark/fixtures/missing-jsonld.html"],
+      "notes": "Confirmed during Stage 3.1 protected interaction calibration."
+    },
+    {
+      "id": "PDP-SCHEMA-009",
+      "title": "CDV Kilian PDP lacks Product JSON-LD",
+      "kind": "known-defect",
+      "source": {
+        "type": "public-pdp",
+        "url": "https://cdv.kz/item/412490",
+        "capturedAt": "2026-08-17"
+      },
+      "platform": "custom-storefront",
+      "pageType": "pdp",
+      "stability": "deterministic",
+      "fixture": { "path": "benchmark/fixtures/missing-jsonld.html" },
+      "viewport": { "width": 390, "height": 844 },
+      "expected": {
+        "supported": true,
+        "findings": [
+          {
+            "ruleId": "structured-product-data",
+            "status": "failed",
+            "severity": "warning"
+          }
+        ]
+      },
+      "businessImpact": "The product is ineligible for complete Product rich-result metadata.",
+      "evidence": ["benchmark/fixtures/missing-jsonld.html"],
+      "notes": "A second CDV PDP confirms the missing structured data is reproducible."
+    },
+    {
+      "id": "PDP-CONTROL-001",
+      "title": "Healthy Viled direct-purchase PDP control",
+      "kind": "negative-control",
+      "source": {
+        "type": "public-pdp",
+        "url": "https://viled.kz/item/392538",
+        "capturedAt": "2026-08-17"
+      },
+      "platform": "custom-storefront",
+      "pageType": "pdp",
+      "stability": "deterministic",
+      "fixture": { "path": "benchmark/fixtures/healthy.html" },
+      "viewport": { "width": 390, "height": 844 },
+      "expected": {
+        "supported": true,
+        "findings": [
+          {
+            "ruleId": "page-availability",
+            "status": "passed",
+            "severity": "info"
+          },
+          { "ruleId": "page-title", "status": "passed", "severity": "info" },
+          { "ruleId": "product-image", "status": "passed", "severity": "info" },
+          { "ruleId": "broken-images", "status": "passed", "severity": "info" },
+          { "ruleId": "product-price", "status": "passed", "severity": "info" },
+          { "ruleId": "purchase-cta", "status": "passed", "severity": "info" },
+          {
+            "ruleId": "structured-product-data",
+            "status": "passed",
+            "severity": "info"
+          }
+        ]
+      },
+      "businessImpact": "Control case guards against false positives on a complete PDP.",
+      "evidence": ["benchmark/fixtures/healthy.html"],
+      "notes": "Expectation applies only to the seven current deterministic rules."
+    },
+    {
+      "id": "PDP-CONTROL-002",
+      "title": "Healthy Viled lazy-image PDP control",
+      "kind": "negative-control",
+      "source": {
+        "type": "public-pdp",
+        "url": "https://viled.kz/en/item/400214",
+        "capturedAt": "2026-08-17"
+      },
+      "platform": "custom-storefront",
+      "pageType": "pdp",
+      "stability": "deterministic",
+      "fixture": { "path": "benchmark/fixtures/healthy.html" },
+      "viewport": { "width": 390, "height": 844 },
+      "expected": {
+        "supported": true,
+        "findings": [
+          {
+            "ruleId": "page-availability",
+            "status": "passed",
+            "severity": "info"
+          },
+          { "ruleId": "page-title", "status": "passed", "severity": "info" },
+          { "ruleId": "product-image", "status": "passed", "severity": "info" },
+          { "ruleId": "broken-images", "status": "passed", "severity": "info" },
+          { "ruleId": "product-price", "status": "passed", "severity": "info" },
+          { "ruleId": "purchase-cta", "status": "passed", "severity": "info" },
+          {
+            "ruleId": "structured-product-data",
+            "status": "passed",
+            "severity": "info"
+          }
+        ]
+      },
+      "businessImpact": "Control case guards against false positives on a complete PDP.",
+      "evidence": ["benchmark/fixtures/healthy.html"],
+      "notes": "The original live image warning was manually disproved; this locks the healthy expectation."
+    },
+    {
+      "id": "PDP-SCHEMA-010",
+      "title": "Offer-level priceCurrency compatibility",
+      "kind": "known-defect",
+      "source": {
+        "type": "github-issue",
+        "url": "https://github.com/woocommerce/woocommerce/issues/60652",
+        "capturedAt": "2026-08-17"
+      },
+      "platform": "woocommerce",
+      "pageType": "pdp",
+      "stability": "live",
+      "viewport": { "width": 390, "height": 844 },
+      "expected": {
+        "supported": false,
+        "findings": [
+          {
+            "ruleId": "structured-product-data",
+            "status": "failed",
+            "severity": "warning"
+          }
+        ]
+      },
+      "businessImpact": "Products may be excluded from Google enriched results.",
+      "evidence": ["https://github.com/woocommerce/woocommerce/issues/60652"],
+      "notes": "PDP Guard currently accepts priceCurrency inside priceSpecification.",
+      "unsupportedReason": "The rule does not validate field placement or Google-specific compatibility."
+    },
+    {
+      "id": "PDP-SCHEMA-011",
+      "title": "Offer price exists only in priceSpecification",
+      "kind": "known-defect",
+      "source": {
+        "type": "github-issue",
+        "url": "https://github.com/woocommerce/woocommerce/issues/53000",
+        "capturedAt": "2026-08-17"
+      },
+      "platform": "woocommerce",
+      "pageType": "pdp",
+      "stability": "live",
+      "viewport": { "width": 390, "height": 844 },
+      "expected": {
+        "supported": false,
+        "findings": [
+          {
+            "ruleId": "structured-product-data",
+            "status": "failed",
+            "severity": "warning"
+          }
+        ]
+      },
+      "businessImpact": "Products may be removed from Google enriched results.",
+      "evidence": ["https://github.com/woocommerce/woocommerce/issues/53000"],
+      "notes": "The current parser intentionally accepts nested priceSpecification prices.",
+      "unsupportedReason": "The rule checks for a price value, not its required consumer-specific location."
+    },
+    {
+      "id": "PDP-SCHEMA-012",
+      "title": "Selected variation schema does not match the UI",
+      "kind": "known-defect",
+      "source": {
+        "type": "github-issue",
+        "url": "https://github.com/woocommerce/woocommerce/issues/17471",
+        "capturedAt": "2026-08-17"
+      },
+      "platform": "woocommerce",
+      "pageType": "pdp",
+      "stability": "live",
+      "viewport": { "width": 390, "height": 844 },
+      "expected": {
+        "supported": false,
+        "findings": [
+          {
+            "ruleId": "structured-product-data",
+            "status": "failed",
+            "severity": "warning"
+          }
+        ]
+      },
+      "businessImpact": "Merchant feeds and on-page variation data can disagree.",
+      "evidence": ["https://github.com/woocommerce/woocommerce/issues/17471"],
+      "notes": "The issue describes AggregateOffer data that does not identify the selected variation.",
+      "unsupportedReason": "PDP Guard does not select variants or compare UI state with variation-level schema."
+    },
+    {
+      "id": "PDP-CART-003",
+      "title": "Item appears in drawer but is absent from cart page",
+      "kind": "known-defect",
+      "source": {
+        "type": "github-issue",
+        "url": "https://github.com/medusajs/nextjs-starter-medusa/issues/350",
+        "capturedAt": "2026-08-17"
+      },
+      "platform": "medusa",
+      "pageType": "pdp",
+      "stability": "live",
+      "viewport": { "width": 390, "height": 844 },
+      "expected": {
+        "supported": false,
+        "findings": [
+          {
+            "ruleId": "add-to-cart-interaction",
+            "status": "failed",
+            "severity": "warning"
+          }
+        ]
+      },
+      "businessImpact": "The shopper sees a false success and loses the cart item on navigation.",
+      "evidence": [
+        "https://github.com/medusajs/nextjs-starter-medusa/issues/350"
+      ],
+      "notes": "The current smoke stops after the first visible drawer/count confirmation.",
+      "unsupportedReason": "Cart-page persistence is outside the current one-click observation window."
+    },
+    {
+      "id": "PDP-SCHEMA-013",
+      "title": "Grouped UI price range differs from one structured price",
+      "kind": "known-defect",
+      "source": {
+        "type": "github-issue",
+        "url": "https://github.com/woocommerce/woocommerce/issues/25969",
+        "capturedAt": "2026-08-17"
+      },
+      "platform": "woocommerce",
+      "pageType": "pdp",
+      "stability": "live",
+      "viewport": { "width": 390, "height": 844 },
+      "expected": {
+        "supported": false,
+        "findings": [
+          {
+            "ruleId": "structured-product-data",
+            "status": "failed",
+            "severity": "warning"
+          }
+        ]
+      },
+      "businessImpact": "Search metadata advertises the lowest child price instead of the visible grouped-product range.",
+      "evidence": ["https://github.com/woocommerce/woocommerce/issues/25969"],
+      "notes": "The same issue reports a €11–€33 UI range represented as a single €11 Offer.",
+      "unsupportedReason": "PDP Guard does not compare visible and structured price values."
+    }
+  ]
+}

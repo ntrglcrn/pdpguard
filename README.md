@@ -30,8 +30,13 @@ Open [http://localhost:3000](http://localhost:3000), enter a public product page
 pnpm lint
 pnpm typecheck
 pnpm test
+pnpm benchmark
 pnpm build
 ```
+
+The deterministic known-defect benchmark is documented in
+[`docs/benchmark.md`](docs/benchmark.md). The live calibration matrix remains
+in [`docs/calibration.md`](docs/calibration.md).
 
 ## Architecture
 

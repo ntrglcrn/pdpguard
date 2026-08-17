@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <title>Broken main image</title>
+    <script type="application/ld+json">
+      {
+        "@type": "Product",
+        "name": "Broken main image",
+        "image": "missing.jpg",
+        "offers": { "price": "90" }
+      }
+    </script>
+  </head>
+  <body>
+    <main>
+      <h1>Broken main image</h1>
+      <img
+        alt="Product"
+        style="display: block; width: 300px; height: 360px"
+        src="broken://catalog/product.jpg"
+      />
+      <p class="price">$90.00</p>
+      <button style="width: 220px; height: 48px">Add to cart</button>
+    </main>
+  </body>
+</html>

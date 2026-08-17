@@ -5,6 +5,11 @@ compared with the JSON result and screenshot from the local audit endpoint.
 `P` means Passed, `W` Warning and `C` Critical. Expected and actual columns use
 the order CTA / price / image / structured data.
 
+This live matrix is the legacy negative-control catalog. A label applies only
+to the listed rules and observation date; it does not claim that a storefront
+is defect-free. Deterministic positive cases and executable controls live in
+`benchmark/manifest.json`.
+
 |   # | Store         | PDP                                                                                                                                          | Scenario                                                 | Expected      | Actual        | Known limitation                                                                   |
 | --: | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- | ------------- | ------------- | ---------------------------------------------------------------------------------- |
 |   1 | KazakhYuvelir | [Invictus bracelet](https://kazakhyuvelir.kz/product/bracelet-invictus-m064456-0003)                                                         | First-session promo; size gate; many recommendation CTAs | P / P / P / W | P / P / P / W | Product JSON-LD is absent.                                                         |

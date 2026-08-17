@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <title>Broken gallery image</title>
+    <script type="application/ld+json">
+      {
+        "@type": "Product",
+        "name": "Broken gallery image",
+        "image": "fixture.jpg",
+        "offers": { "price": "90" }
+      }
+    </script>
+  </head>
+  <body>
+    <main>
+      <h1>Broken gallery image</h1>
+      <img
+        alt="Product"
+        width="500"
+        height="600"
+        style="width: 300px; height: 360px"
+        src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='500' height='600'%3E%3Crect width='500' height='600' fill='%23333'/%3E%3C/svg%3E"
+      />
+      <img
+        alt="Gallery image"
+        style="display: block; width: 80px; height: 80px"
+        src="broken://catalog/gallery.jpg"
+      />
+      <p class="price">$90.00</p>
+      <button style="width: 220px; height: 48px">Add to cart</button>
+    </main>
+  </body>
+</html>
