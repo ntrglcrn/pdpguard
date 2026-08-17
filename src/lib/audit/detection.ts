@@ -1,11 +1,15 @@
-export const PURCHASE_CTA_LABELS = [
+export const ADD_TO_CART_LABELS = [
   "add to cart",
   "add to bag",
   "add to basket",
-  "buy now",
-  "купить",
   "в корзину",
   "добавить в корзину",
+] as const;
+
+export const PURCHASE_CTA_LABELS = [
+  ...ADD_TO_CART_LABELS,
+  "buy now",
+  "купить",
 ] as const;
 
 export const VARIANT_GATE_LABELS = [

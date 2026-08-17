@@ -25,6 +25,16 @@ batches prove useful and their resource limits are understood.
 
 Variant selection, availability behavior, add-to-cart, cart drawer state, PDP/cart price consistency, and platform-specific adapters.
 
+Current Stage 3.1 slice: a single-PDP audit can opt into one isolated
+add-to-cart smoke. It clicks only an enabled direct Add to cart / Add to bag /
+В корзину control and looks for a new confirmation, cart drawer, cart count or
+cart navigation. The PDP screenshot is captured before the click. Buy now,
+generic Купить, variant gates, inquiry controls and checkout are never clicked.
+
+Next: remove the known Glossier click-readiness false Warning and expand
+confirmation calibration before testing variant selection or comparing PDP and
+cart prices.
+
 ## Stage 4 — Visual regression
 
 Mobile and desktop baselines, screenshot comparison, dynamic-region suppression, review/approval, and duplicate issue grouping.

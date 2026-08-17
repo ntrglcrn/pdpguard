@@ -85,6 +85,7 @@ export default function AuditWorkspace() {
   const [state, setState] = useState<ViewState>("initial");
   const [result, setResult] = useState<AuditResult | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
+  const [testAddToCart, setTestAddToCart] = useState(false);
   const [catalogUrl, setCatalogUrl] = useState("");
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [catalogFieldError, setCatalogFieldError] = useState<string | null>(
@@ -121,7 +122,10 @@ export default function AuditWorkspace() {
       const response = await fetch("/api/audits", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: url.trim() }),
+        body: JSON.stringify({
+          url: url.trim(),
+          testAddToCart,
+        }),
       });
       const payload = (await response.json()) as
         AuditResult | { error?: string };
@@ -319,6 +323,21 @@ export default function AuditWorkspace() {
                 Only public HTTP and HTTPS pages are allowed.
               </p>
             )}
+            <label className="interaction-option">
+              <input
+                type="checkbox"
+                checked={testAddToCart}
+                disabled={state === "scanning" || batchLoading}
+                onChange={(event) => setTestAddToCart(event.target.checked)}
+              />
+              <span>
+                <strong>Test Add to cart</strong>
+                <small>
+                  Uses an isolated session. Never selects variants, clicks Buy
+                  now or continues to checkout.
+                </small>
+              </span>
+            </label>
           </form>
 
           {state === "scanning" && (

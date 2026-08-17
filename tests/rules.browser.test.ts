@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { chromium, type Browser, type Page, type Response } from "playwright";
 
 import { runAuditRules } from "@/lib/audit/rules";
+import { runAddToCartInteraction } from "@/lib/audit/add-to-cart";
 import { extractProductUrls } from "@/lib/category-discovery";
 
 let browser: Browser;
@@ -355,5 +356,98 @@ describe("browser audit rules", () => {
     expect(
       findings.find((item) => item.ruleId === "broken-images"),
     ).toMatchObject({ status: "failed" });
+  });
+});
+
+describe("add-to-cart interaction", () => {
+  it("passes when a direct cart CTA creates a visible confirmation", async () => {
+    await page.setContent(`
+      <main><h1>Product</h1><p class="price">$12</p>
+        <button style="width:220px;height:48px" onclick="
+          const status=document.createElement('p');
+          status.setAttribute('role','status');
+          status.textContent='Added to cart';
+          document.body.append(status)
+        ">Add to cart</button>
+      </main>
+    `);
+    await expect(runAddToCartInteraction(page)).resolves.toMatchObject({
+      status: "passed",
+      severity: "info",
+      ruleId: "add-to-cart-interaction",
+    });
+    expect(await page.getByRole("status").innerText()).toBe("Added to cart");
+  });
+
+  it("finds a cart confirmation appended after a large product DOM", async () => {
+    await page.setContent(`
+      <main>${"<span>detail</span>".repeat(5_100)}</main>
+      <button onclick="
+        const confirmation=document.createElement('button');
+        confirmation.textContent='Перейти в корзину';
+        document.body.append(confirmation)
+      ">Добавить в корзину</button>
+    `);
+    await expect(runAddToCartInteraction(page)).resolves.toMatchObject({
+      status: "passed",
+      severity: "info",
+    });
+  });
+
+  it("never clicks buy-now, variant or inquiry controls", async () => {
+    await page.setContent(`
+      <button onclick="window.buyClicked=true">Buy now</button>
+      <button onclick="window.variantClicked=true">Select size</button>
+      <button onclick="window.inquiryClicked=true">Оставить заявку</button>
+    `);
+    const finding = await runAddToCartInteraction(page);
+    expect(finding).toMatchObject({ status: "passed", severity: "info" });
+    expect(finding.evidence.join(" ")).toContain("Skipped");
+    expect(
+      await page.evaluate(() =>
+        Boolean(
+          (
+            window as typeof window & {
+              buyClicked?: boolean;
+              variantClicked?: boolean;
+              inquiryClicked?: boolean;
+            }
+          ).buyClicked ||
+          (window as typeof window & { variantClicked?: boolean })
+            .variantClicked ||
+          (window as typeof window & { inquiryClicked?: boolean })
+            .inquiryClicked,
+        ),
+      ),
+    ).toBe(false);
+  });
+
+  it("skips a disabled cart CTA when a visible variant gate explains it", async () => {
+    await page.setContent(`
+      <button onclick="window.variantClicked=true">Select size</button>
+      <button disabled onclick="window.cartClicked=true">Add to cart</button>
+    `);
+    const finding = await runAddToCartInteraction(page);
+    expect(finding).toMatchObject({ status: "passed", severity: "info" });
+    expect(finding.evidence.join(" ")).toContain("Select size");
+    expect(
+      await page.evaluate(() =>
+        Boolean(
+          (window as typeof window & { variantClicked?: boolean })
+            .variantClicked ||
+          (window as typeof window & { cartClicked?: boolean }).cartClicked,
+        ),
+      ),
+    ).toBe(false);
+  });
+
+  it("warns when the click has no observable cart confirmation", async () => {
+    await page.setContent(
+      '<button style="width:220px;height:48px">В корзину</button>',
+    );
+    await expect(runAddToCartInteraction(page)).resolves.toMatchObject({
+      status: "failed",
+      severity: "warning",
+    });
   });
 });

@@ -2,10 +2,12 @@ import { chromium, devices, type Browser } from "playwright";
 
 import {
   summarizeFindings,
+  type AuditOptions,
   type AuditResult,
   type AuditRunner,
 } from "@/domain/audit";
 import { runAuditRules } from "@/lib/audit/rules";
+import { runAddToCartInteraction } from "@/lib/audit/add-to-cart";
 import {
   screenshotStorage,
   type ScreenshotStorage,
@@ -42,7 +44,10 @@ export class PlaywrightAuditRunner implements AuditRunner {
     private readonly resolver: DnsResolver = systemDnsResolver,
   ) {}
 
-  async run(inputUrl: string): Promise<AuditResult> {
+  async run(
+    inputUrl: string,
+    options: AuditOptions = {},
+  ): Promise<AuditResult> {
     const startedAt = new Date();
     const auditedUrl = (await validatePublicUrl(inputUrl, this.resolver)).href;
     let browser: Browser | null = null;
@@ -100,29 +105,38 @@ export class PlaywrightAuditRunner implements AuditRunner {
         throw new AuditPageTooLargeError();
 
       const findings = await runAuditRules({ page, mainResponse });
+      const finalUrl = page.url();
+      const pageTitle = (await page.title()).trim();
+      const userAgent = await page.evaluate(() => navigator.userAgent);
+      const redirectCount = networkGuard.redirectCount;
+      const blockedRequestCount = networkGuard.blockedRequestCount;
       const screenshotBuffer = await page.screenshot({
         fullPage: true,
         type: "png",
       });
       const screenshot = await this.storage.save(screenshotBuffer);
+      if (options.testAddToCart && findings[0]?.status === "passed") {
+        findings.push(await runAddToCartInteraction(page));
+        if (networkGuard.fatalSafetyError) throw networkGuard.fatalSafetyError;
+      }
       const finishedAt = new Date();
 
       return {
         auditedUrl,
-        finalUrl: page.url(),
+        finalUrl,
         startedAt: startedAt.toISOString(),
         finishedAt: finishedAt.toISOString(),
         durationMs: finishedAt.getTime() - startedAt.getTime(),
-        pageTitle: (await page.title()).trim(),
+        pageTitle,
         screenshot,
         summary: summarizeFindings(findings),
         findings,
         metadata: {
           viewport: VIEWPORT,
-          userAgent: await page.evaluate(() => navigator.userAgent),
+          userAgent,
           httpStatus: mainResponse?.status() ?? null,
-          redirectCount: networkGuard.redirectCount,
-          blockedRequestCount: networkGuard.blockedRequestCount,
+          redirectCount,
+          blockedRequestCount,
         },
       };
     } catch (error) {

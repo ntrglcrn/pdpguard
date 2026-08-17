@@ -54,7 +54,11 @@ export interface AuditRuleContext {
 export type AuditRule = (context: AuditRuleContext) => Promise<Finding>;
 
 export interface AuditRunner {
-  run(url: string): Promise<AuditResult>;
+  run(url: string, options?: AuditOptions): Promise<AuditResult>;
+}
+
+export interface AuditOptions {
+  testAddToCart?: boolean;
 }
 
 export function summarizeFindings(findings: Finding[]): AuditSummary {

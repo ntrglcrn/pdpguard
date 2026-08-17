@@ -55,3 +55,22 @@ each produces one page-availability Critical and no misleading PDP findings.
 Known false warnings: the Men's Tree Runner produced one non-critical warning
 that was not reproduced as a purchase-flow failure. KazakhYuvelir consistently
 lacks parseable Product/ProductGroup JSON-LD, so those warnings are expected.
+
+## Stage 3.1 interaction controls
+
+- [Viled Roberto Coin ring](https://viled.kz/item/392538): “Добавить в корзину”
+  produced a visible “Перейти в корзину” confirmation and Passed.
+- [Viled Graff Classic necklace](https://viled.kz/item/396335): the inquiry-only
+  CTA was explicitly skipped and remained Passed; “Оставить заявку” was not
+  clicked.
+- [CDV Ex Nihilo Lust In Paradise](https://cdv.kz/item/406402): “Добавить в
+  корзину” produced a visible “Перейти в корзину” confirmation and Passed. The
+  confirmation appears after more than 5,000 ordinary DOM nodes.
+- [KazakhYuvelir Invictus bracelet](https://kazakhyuvelir.kz/product/bracelet-invictus-m064456-0003):
+  “Выберите размер” was explicitly skipped and remained Passed; no variant was
+  selected.
+- [Glossier Boy Brow](https://www.glossier.com/products/boy-brow?variant=43886803222773):
+  the fresh protected context twice reported that the selected Add to bag
+  control was not actionable, while a normal browser session added the item
+  and changed Bag (0) to Bag (1). This remains a known non-critical false
+  Warning.

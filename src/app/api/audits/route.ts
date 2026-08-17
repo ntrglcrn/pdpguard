@@ -10,6 +10,7 @@ export const dynamic = "force-dynamic";
 
 const requestSchema = z.object({
   url: z.string().trim().min(1).max(2_048),
+  testAddToCart: z.boolean().optional().default(false),
 });
 
 export async function POST(request: Request) {
@@ -41,7 +42,11 @@ export async function POST(request: Request) {
 
   try {
     return NextResponse.json(
-      await runAuditExclusive(() => auditRunner.run(parsed.data.url)),
+      await runAuditExclusive(() =>
+        auditRunner.run(parsed.data.url, {
+          testAddToCart: parsed.data.testAddToCart,
+        }),
+      ),
     );
   } catch (error) {
     const failure = publicAuditFailure(error);
