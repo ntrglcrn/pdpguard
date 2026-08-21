@@ -15,6 +15,10 @@ test-results/
 # local configuration
 .env*
 !.env.example
+*.pem
+*.key
+*.p12
+*.pfx
 
 # system and editor files
 .DS_Store
