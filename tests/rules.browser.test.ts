@@ -104,6 +104,36 @@ describe("browser audit rules", () => {
     expect(findings).toHaveLength(7);
   });
 
+  it("accepts Free only from explicit visible price UI", async () => {
+    await page.setContent(
+      '<main><h1>Product</h1><p class="price">Free!</p></main>',
+    );
+    expect(
+      (await runAuditRules({ page, mainResponse: null })).find(
+        (item) => item.ruleId === "product-price",
+      ),
+    ).toMatchObject({
+      status: "passed",
+      evidence: ["Visible price text: Free!"],
+    });
+
+    await page.setContent("<main><h1>Product</h1><p>Free</p></main>");
+    expect(
+      (await runAuditRules({ page, mainResponse: null })).find(
+        (item) => item.ruleId === "product-price",
+      ),
+    ).toMatchObject({ status: "failed" });
+
+    await page.setContent(
+      "<main><h1>Request a quote product</h1><p>Contact us</p></main>",
+    );
+    expect(
+      (await runAuditRules({ page, mainResponse: null })).find(
+        (item) => item.ruleId === "product-price",
+      ),
+    ).toMatchObject({ status: "failed" });
+  });
+
   it("reports a disabled purchase CTA", async () => {
     await page.setContent(
       "<title>Product</title><main><p>$12</p><button disabled>Add to cart</button></main>",

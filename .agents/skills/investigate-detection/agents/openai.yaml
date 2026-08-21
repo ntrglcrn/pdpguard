@@ -1,0 +1,4 @@
+interface:
+  display_name: "Investigate Detection"
+  short_description: "Classify unexpected PDP detections"
+  default_prompt: "Use $investigate-detection to classify and explain unexpected PDP detection behavior."

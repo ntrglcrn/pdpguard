@@ -1,0 +1,4 @@
+interface:
+  display_name: "Fix Rule"
+  short_description: "Fix an existing PDP detector rule"
+  default_prompt: "Use $fix-rule to reproduce and minimally fix an existing PDP detector issue."

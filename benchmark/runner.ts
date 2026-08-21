@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
-import { chromium, type Page, type Response } from "playwright";
+import { chromium, type Response } from "playwright";
 import { z } from "zod";
 
 import type { Finding } from "@/domain/audit";
@@ -41,7 +41,9 @@ const benchmarkCaseSchema = z
     fixture: z
       .object({
         path: z.string().min(1),
+        fixedPath: z.string().min(1),
         httpStatus: z.number().int().min(100).max(599).optional(),
+        fixedHttpStatus: z.number().int().min(100).max(599).optional(),
         interaction: z.boolean().optional(),
       })
       .optional(),
@@ -96,6 +98,7 @@ export interface BenchmarkCaseResult {
   findings: Finding[];
   missedRules: string[];
   falsePositiveRules: string[];
+  fixed?: Omit<BenchmarkCaseResult, "fixed">;
   error?: string;
 }
 
@@ -103,6 +106,8 @@ export interface BenchmarkReport {
   total: number;
   positive: number;
   negative: number;
+  uniqueDefectPatterns: number;
+  coveredRules: number;
   detected: number;
   missed: number;
   falsePositives: number;
@@ -143,35 +148,38 @@ function classify(
 ): BenchmarkCaseResult {
   const missedRules: string[] = [];
   const falsePositiveRules: string[] = [];
-  const expectedFailed = new Set<string>(
-    benchmarkCase.expected.findings
-      .filter((finding) => finding.status === "failed")
-      .map((finding) => finding.ruleId),
+  const expected = new Map<
+    string,
+    BenchmarkCase["expected"]["findings"][number]
+  >(
+    benchmarkCase.expected.findings.map((finding) => [finding.ruleId, finding]),
   );
 
-  for (const expected of benchmarkCase.expected.findings) {
-    const matches = findings.some(
-      (finding) =>
-        finding.ruleId === expected.ruleId &&
-        finding.status === expected.status &&
-        finding.severity === expected.severity,
-    );
-    if (expected.status === "failed") {
-      byRule[expected.ruleId][matches ? "tp" : "fn"] += 1;
-      if (!matches) missedRules.push(expected.ruleId);
+  for (const finding of findings) {
+    const counts = byRule[finding.ruleId];
+    if (!counts) throw new Error(`Unknown rule returned: ${finding.ruleId}`);
+    const wanted = expected.get(finding.ruleId);
+    if (wanted?.status === "failed") {
+      const matches =
+        finding.status === wanted.status &&
+        finding.severity === wanted.severity;
+      counts[matches ? "tp" : "fn"] += 1;
+      if (!matches) missedRules.push(finding.ruleId);
+    } else if (finding.status === "failed") {
+      counts.fp += 1;
+      falsePositiveRules.push(finding.ruleId);
     } else {
-      byRule[expected.ruleId][matches ? "tn" : "fp"] += 1;
-      if (!matches) falsePositiveRules.push(expected.ruleId);
+      counts.tn += 1;
     }
   }
 
-  for (const finding of findings) {
-    if (finding.status === "failed" && !expectedFailed.has(finding.ruleId)) {
-      const counts = byRule[finding.ruleId];
-      if (!counts) throw new Error(`Unknown rule returned: ${finding.ruleId}`);
-      counts.fp += 1;
-      if (!falsePositiveRules.includes(finding.ruleId))
-        falsePositiveRules.push(finding.ruleId);
+  for (const wanted of expected.values()) {
+    if (
+      wanted.status === "failed" &&
+      !findings.some((finding) => finding.ruleId === wanted.ruleId)
+    ) {
+      byRule[wanted.ruleId].fn += 1;
+      missedRules.push(wanted.ruleId);
     }
   }
 
@@ -180,15 +188,47 @@ function classify(
     classification:
       missedRules.length > 0
         ? "false-negative"
-        : falsePositiveRules.length > 0
-          ? "false-positive"
-          : benchmarkCase.kind === "known-defect"
-            ? "true-positive"
+        : benchmarkCase.kind === "known-defect"
+          ? "true-positive"
+          : falsePositiveRules.length > 0
+            ? "false-positive"
             : "true-negative",
     findings,
     missedRules,
     falsePositiveRules,
   };
+}
+
+async function auditFixture(
+  browser: Awaited<ReturnType<typeof chromium.launch>>,
+  benchmarkCase: BenchmarkCase,
+  fixed: boolean,
+): Promise<Finding[]> {
+  const fixture = benchmarkCase.fixture;
+  if (!fixture) throw new Error("Fixture is missing.");
+  const page = await browser.newPage({ viewport: benchmarkCase.viewport });
+  try {
+    await page.setContent(
+      await readFile(
+        fixturePath(fixed ? fixture.fixedPath : fixture.path),
+        "utf8",
+      ),
+    );
+    await page
+      .locator("img")
+      .evaluateAll((images: HTMLImageElement[]) =>
+        Promise.all(images.map((image) => image.decode().catch(() => {}))),
+      );
+    const status = fixed ? fixture.fixedHttpStatus : fixture.httpStatus;
+    const findings = await runAuditRules({
+      page,
+      mainResponse: status ? ({ status: () => status } as Response) : null,
+    });
+    if (fixture.interaction) findings.push(await runAddToCartInteraction(page));
+    return findings;
+  } finally {
+    await page.close();
+  }
 }
 
 export async function runBenchmark(
@@ -211,26 +251,33 @@ export async function runBenchmark(
         continue;
       }
 
-      let page: Page | undefined;
       try {
-        page = await browser.newPage({ viewport: benchmarkCase.viewport });
-        const fixture = benchmarkCase.fixture;
-        if (!fixture) throw new Error("Fixture is missing.");
-        await page.setContent(
-          await readFile(fixturePath(fixture.path), "utf8"),
+        const result = classify(
+          benchmarkCase,
+          await auditFixture(browser, benchmarkCase, false),
+          byRule,
         );
-        await page
-          .locator("img")
-          .evaluateAll((images: HTMLImageElement[]) =>
-            Promise.all(images.map((image) => image.decode().catch(() => {}))),
+        if (benchmarkCase.kind === "known-defect") {
+          const fixedCase = {
+            ...benchmarkCase,
+            id: `${benchmarkCase.id}-FIXED`,
+            kind: "negative-control" as const,
+            expected: {
+              supported: true,
+              findings: benchmarkCase.expected.findings.map((finding) => ({
+                ...finding,
+                status: "passed" as const,
+                severity: "info" as const,
+              })),
+            },
+          };
+          result.fixed = classify(
+            fixedCase,
+            await auditFixture(browser, benchmarkCase, true),
+            byRule,
           );
-        const mainResponse = fixture.httpStatus
-          ? ({ status: () => fixture.httpStatus } as Response)
-          : null;
-        const findings = await runAuditRules({ page, mainResponse });
-        if (fixture.interaction)
-          findings.push(await runAddToCartInteraction(page));
-        results.push(classify(benchmarkCase, findings, byRule));
+        }
+        results.push(result);
       } catch (error) {
         results.push({
           id: benchmarkCase.id,
@@ -240,8 +287,6 @@ export async function runBenchmark(
           falsePositiveRules: [],
           error: error instanceof Error ? error.message : "Unknown error",
         });
-      } finally {
-        await page?.close();
       }
     }
   } finally {
@@ -259,14 +304,34 @@ export async function runBenchmark(
   const positive = manifest.cases.filter(
     (item) => item.kind === "known-defect" && item.expected.supported,
   ).length;
-  const negative = manifest.cases.filter(
-    (item) => item.kind === "negative-control" && item.expected.supported,
-  ).length;
+  const negative =
+    manifest.cases.filter(
+      (item) => item.kind === "negative-control" && item.expected.supported,
+    ).length + positive;
+  const supportedDefects = manifest.cases.filter(
+    (item) => item.kind === "known-defect" && item.expected.supported,
+  );
 
   return {
     total: manifest.cases.length,
     positive,
     negative,
+    uniqueDefectPatterns: new Set(
+      supportedDefects.map((item) =>
+        item.expected.findings
+          .filter((finding) => finding.status === "failed")
+          .map((finding) => finding.ruleId)
+          .sort()
+          .join("+"),
+      ),
+    ).size,
+    coveredRules: new Set(
+      supportedDefects.flatMap((item) =>
+        item.expected.findings
+          .filter((finding) => finding.status === "failed")
+          .map((finding) => finding.ruleId),
+      ),
+    ).size,
     detected: results.filter(
       (result) => result.classification === "true-positive",
     ).length,
@@ -292,28 +357,30 @@ export async function runBenchmark(
 export function formatBenchmarkReport(report: BenchmarkReport): string {
   const percent = (value: number | null) =>
     value === null ? "n/a" : `${(value * 100).toFixed(1)}%`;
+  const formatCase = (result: BenchmarkCaseResult) =>
+    `${result.id}: ${result.classification}${
+      result.missedRules.length
+        ? ` (missed ${result.missedRules.join(", ")})`
+        : ""
+    }${
+      result.falsePositiveRules.length
+        ? ` (false positive ${result.falsePositiveRules.join(", ")})`
+        : ""
+    }`;
   const cases = report.results
-    .map(
-      (result) =>
-        `${result.id}: ${result.classification}${
-          result.missedRules.length
-            ? ` (missed ${result.missedRules.join(", ")})`
-            : ""
-        }${
-          result.falsePositiveRules.length
-            ? ` (false positive ${result.falsePositiveRules.join(", ")})`
-            : ""
-        }`,
-    )
+    .flatMap((result) => [
+      formatCase(result),
+      ...(result.fixed ? [`  ${formatCase(result.fixed)}`] : []),
+    ])
     .join("\n");
   const rules = Object.entries(report.byRule)
     .map(
       ([ruleId, counts]) =>
-        `${ruleId}: TP ${counts.tp}, FN ${counts.fn}, FP ${counts.fp}, TN ${counts.tn}`,
+        `${ruleId}: positive ${counts.tp + counts.fn}, negative ${counts.fp + counts.tn}, TP ${counts.tp}, FN ${counts.fn}, FP ${counts.fp}, TN ${counts.tn}${counts.tp + counts.fn === 0 ? " (positive coverage gap)" : ""}`,
     )
     .join("\n");
   return [
-    `Cases ${report.total}; positive ${report.positive}; negative ${report.negative}; unsupported ${report.unsupported}`,
+    `Cases ${report.total}; supported positive ${report.positive}; deterministic negative evaluations ${report.negative}; unique defect patterns ${report.uniqueDefectPatterns}; covered rules ${report.coveredRules}; unsupported ${report.unsupported}`,
     `Detected ${report.detected}; missed ${report.missed}; false positives ${report.falsePositives}; infrastructure errors ${report.infrastructureErrors}`,
     `Precision ${percent(report.precision)}; recall ${percent(report.recall)}`,
     rules,

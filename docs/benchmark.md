@@ -1,8 +1,8 @@
 # PDP Guard benchmark
 
 The executable benchmark complements `docs/calibration.md`: the calibration
-matrix keeps live negative controls, while the manifest stores deterministic
-fixtures for known defects.
+matrix remains a live-discovery dataset, while the manifest stores
+deterministic defective/fixed fixture pairs and negative controls.
 
 Run it with:
 
@@ -10,34 +10,46 @@ Run it with:
 pnpm benchmark
 ```
 
-The report prints case totals, supported positive and negative cases,
-detected/missed defects, false positives, infrastructure failures, per-rule
-TP/FN/FP/TN counts, precision and recall. The command fails when the manifest
-is invalid, a rule ID is unknown, a fixture cannot run, or an expected defect
-is missed. Live/unsupported cases are reported but excluded from precision and
-recall.
+The report prints manifest cases, unique deterministic defect patterns,
+covered rules, paired negative evaluations, infrastructure failures and
+per-rule positive/negative/TP/FN/FP/TN counts. Precision and recall use only
+deterministic fixtures. The 35 live calibration URLs never enter those
+metrics.
 
 ## Adding a case
 
-Add one entry to `benchmark/manifest.json` and the smallest HTML needed under
-`benchmark/fixtures`. A supported known defect must include a public source,
-capture date, local fixture, expected rule/status/severity, business impact and
-evidence path. Do not copy a storefront; reproduce only the relevant markup,
-style or script.
+Add one entry to `benchmark/manifest.json` and the smallest defective/fixed HTML
+pair needed under `benchmark/fixtures`. A supported defect must include a
+public source that describes that exact behavior, capture date, expected
+rule/status/severity, business impact and evidence path. Do not use an issue as
+a thematic link and do not copy a storefront.
 
 Use `kind: "negative-control"` only for a specifically labelled healthy
 expectation. Use `expected.supported: false` with `unsupportedReason` when the
 current rules cannot observe the reported defect. Never change a detector just
 to make a fixture pass.
 
-## Current coverage
+## Audited coverage
 
-The first positive set covers page availability, visible price, primary and
-broken images, Product JSON-LD, and the opt-in add-to-cart interaction. Empty
-titles and broken purchase CTA layout remain gaps because no sufficiently
-verified source was added. Field-level Google schema compatibility, UI/schema
-price comparison, variation state, and cart persistence are explicitly marked
-unsupported.
+- 22 manifest cases: 14 supported positives, 2 standalone controls and 6
+  unsupported cases.
+- 5 unique observable defect patterns across 5 rules. Patterns are deduplicated
+  by their failed-rule signature rather than by PDP URL.
+- 16 deterministic negative evaluations: 14 paired fixes plus 2 standalone
+  healthy controls.
+- The eight public PDPs with absent Product JSON-LD are eight cases but one
+  reused defect pattern.
+
+Positive coverage gaps remain for page title, visible price and purchase CTA.
+WooCommerce #14854 is now unsupported: it reports an intentionally hidden UI
+price plus an erroneous structured `0.00`, not the missing visible price that
+the old fixture claimed. WooCommerce #25969 now uses a free grouped-product
+fixture and a complete paired version.
+
+The deterministic dataset currently reports 100% aggregate precision and
+recall. These metrics are not broadly representative: there are only 5 unique
+positive defect patterns, only 5 of 8 rules have positive coverage, and the
+product-price rule still has no verified positive source.
 
 ## Next 10 cases
 

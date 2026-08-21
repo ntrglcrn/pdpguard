@@ -5,9 +5,10 @@ compared with the JSON result and screenshot from the local audit endpoint.
 `P` means Passed, `W` Warning and `C` Critical. Expected and actual columns use
 the order CTA / price / image / structured data.
 
-This live matrix is the legacy negative-control catalog. A label applies only
-to the listed rules and observation date; it does not claim that a storefront
-is defect-free. Deterministic positive cases and executable controls live in
+This is a calibration and live-discovery dataset, not a benchmark sample. A
+label applies only to the listed rules and observation date; it does not claim
+that a storefront is defect-free. These 35 URLs are excluded from precision,
+recall and confusion-matrix totals. Deterministic cases live in
 `benchmark/manifest.json`.
 
 |   # | Store         | PDP                                                                                                                                          | Scenario                                                 | Expected      | Actual        | Known limitation                                                                   |

@@ -19,15 +19,17 @@ beforeAll(async () => {
 }, 30_000);
 
 describe("benchmark manifest", () => {
-  it("contains unique sourced cases and at least 15 supported defects", () => {
+  it("contains unique sourced cases and paired supported defects", () => {
     expect(new Set(manifest.cases.map((item) => item.id)).size).toBe(
       manifest.cases.length,
     );
-    expect(
-      manifest.cases.filter(
-        (item) => item.kind === "known-defect" && item.expected.supported,
-      ).length,
-    ).toBeGreaterThanOrEqual(15);
+    const supportedDefects = manifest.cases.filter(
+      (item) => item.kind === "known-defect" && item.expected.supported,
+    );
+    expect(supportedDefects).toHaveLength(14);
+    expect(supportedDefects.every((item) => item.fixture?.fixedPath)).toBe(
+      true,
+    );
     expect(
       manifest.cases.every(
         (item) =>
@@ -66,7 +68,33 @@ describe("benchmark runner", () => {
     expect(report.detected).toBe(report.positive);
     expect(report.missed).toBe(0);
     expect(report.infrastructureErrors).toBe(0);
-    expect(report.negative).toBe(2);
+    expect(report.negative).toBeGreaterThanOrEqual(10);
+    expect(report.uniqueDefectPatterns).toBe(5);
+    expect(report.coveredRules).toBe(5);
+    for (const result of report.results.filter((item) => item.fixed)) {
+      expect(result.fixed?.classification).toBe("true-negative");
+      const expectedRules = new Set<string>(
+        manifest.cases
+          .find((item) => item.id === result.id)
+          ?.expected.findings.map((finding) => finding.ruleId),
+      );
+      expect(
+        result.fixed?.falsePositiveRules.filter((ruleId) =>
+          expectedRules.has(ruleId),
+        ),
+      ).toEqual([]);
+    }
+    for (const ruleId of [
+      "page-availability",
+      "product-image",
+      "broken-images",
+      "product-price",
+      "purchase-cta",
+      "structured-product-data",
+      "add-to-cart-interaction",
+    ]) {
+      expect(report.byRule[ruleId].tn).toBeGreaterThan(0);
+    }
     expect(report.unsupported).toBe(
       manifest.cases.filter((item) => !item.expected.supported).length,
     );

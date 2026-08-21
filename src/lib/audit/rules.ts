@@ -251,8 +251,9 @@ export const brokenImagesRule: AuditRule = async (context) => {
 };
 
 export const productPriceRule: AuditRule = async ({ page }) => {
-  const texts = await page.evaluate(() => {
+  const { texts, explicitPriceTexts } = await page.evaluate(() => {
     const output = new Set<string>();
+    const explicitPrices = new Set<string>();
     const isVisible = (element: Element) => {
       const rect = element.getBoundingClientRect();
       const style = getComputedStyle(element);
@@ -268,8 +269,11 @@ export const productPriceRule: AuditRule = async ({ page }) => {
     for (const element of document.querySelectorAll(
       "[itemprop='price'], [data-price], [class*='price' i], [id*='price' i]",
     )) {
-      if (isVisible(element))
-        output.add((element as HTMLElement).innerText || "");
+      if (isVisible(element)) {
+        const text = (element as HTMLElement).innerText || "";
+        output.add(text);
+        explicitPrices.add(text);
+      }
     }
 
     const walker = document.createTreeWalker(
@@ -286,17 +290,20 @@ export const productPriceRule: AuditRule = async ({ page }) => {
         output.add(text);
     }
 
-    return Array.from(output).slice(0, 5_000);
+    return {
+      texts: Array.from(output).slice(0, 5_000),
+      explicitPriceTexts: Array.from(explicitPrices).slice(0, 5_000),
+    };
   });
-  const price = findVisiblePriceText(texts);
+  const price = findVisiblePriceText(texts, explicitPriceTexts);
 
   return finding({
     id: "product-price",
     ruleId: "product-price",
     title: "Visible product price",
     description: price
-      ? "A visible currency-formatted price was found."
-      : "No visible currency-formatted price was found.",
+      ? "A visible product price was found."
+      : "No visible product price was found.",
     severity: price ? "info" : "warning",
     status: price ? "passed" : "failed",
     evidence: [

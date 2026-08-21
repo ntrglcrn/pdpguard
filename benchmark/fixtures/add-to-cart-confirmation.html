@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <title>Working add to cart</title>
+    <script type="application/ld+json">
+      {
+        "@type": "Product",
+        "name": "Working add to cart",
+        "image": "fixture.jpg",
+        "offers": { "price": "75" }
+      }
+    </script>
+  </head>
+  <body>
+    <main>
+      <h1>Working add to cart</h1>
+      <img
+        alt="Product"
+        width="500"
+        height="600"
+        style="width: 300px; height: 360px"
+        src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='500' height='600'%3E%3Crect width='500' height='600' fill='%23333'/%3E%3C/svg%3E"
+      />
+      <p class="price">$75.00</p>
+      <button
+        style="width: 220px; height: 48px"
+        onclick="
+          document.querySelector('[role=status]').textContent = 'Added to cart'
+        "
+      >
+        Add to cart
+      </button>
+      <p role="status"></p>
+    </main>
+  </body>
+</html>

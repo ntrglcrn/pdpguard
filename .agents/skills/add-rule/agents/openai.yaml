@@ -1,0 +1,4 @@
+interface:
+  display_name: "Add Rule"
+  short_description: "Add a deterministic PDP rule"
+  default_prompt: "Use $add-rule to add a new deterministic PDP detection rule with tests and benchmark coverage."

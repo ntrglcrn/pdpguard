@@ -1,0 +1,4 @@
+interface:
+  display_name: "Benchmark Rule"
+  short_description: "Maintain PDP rule benchmark coverage"
+  default_prompt: "Use $benchmark-rule to add or update deterministic PDP rule benchmark coverage."

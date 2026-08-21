@@ -1,0 +1,4 @@
+interface:
+  display_name: "Verify Change"
+  short_description: "Run the full project verification gate"
+  default_prompt: "Use $verify-change to run the complete PDP Guard verification gate."

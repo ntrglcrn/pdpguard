@@ -1,0 +1,4 @@
+interface:
+  display_name: "Review Change"
+  short_description: "Review substantial PDP Guard changes"
+  default_prompt: "Use $review-change to review a substantial PDP Guard change for regressions and complexity."

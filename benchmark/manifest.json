@@ -15,7 +15,9 @@
       "stability": "deterministic",
       "fixture": {
         "path": "benchmark/fixtures/server-error.html",
-        "httpStatus": 500
+        "fixedPath": "benchmark/fixtures/healthy.html",
+        "httpStatus": 500,
+        "fixedHttpStatus": 200
       },
       "viewport": { "width": 390, "height": 844 },
       "expected": {
@@ -44,10 +46,9 @@
       "platform": "woocommerce",
       "pageType": "pdp",
       "stability": "deterministic",
-      "fixture": { "path": "benchmark/fixtures/missing-price.html" },
       "viewport": { "width": 390, "height": 844 },
       "expected": {
-        "supported": true,
+        "supported": false,
         "findings": [
           {
             "ruleId": "product-price",
@@ -57,8 +58,9 @@
         ]
       },
       "businessImpact": "Shoppers cannot see a purchase price and search results may incorrectly present the item as free.",
-      "evidence": ["benchmark/fixtures/missing-price.html"],
-      "notes": "Reproduces the reported blank UI price while WooCommerce emits a zero structured price."
+      "evidence": ["https://github.com/woocommerce/woocommerce/issues/14854"],
+      "notes": "The source reports an intentional request-quote UI combined with an erroneous structured price of 0.00; it is not a missing-visible-price defect.",
+      "unsupportedReason": "The current rules do not compare intentionally hidden UI pricing with an erroneous zero-valued structured offer."
     },
     {
       "id": "PDP-IMAGE-001",
@@ -72,7 +74,10 @@
       "platform": "magento",
       "pageType": "pdp",
       "stability": "deterministic",
-      "fixture": { "path": "benchmark/fixtures/broken-main-image.html" },
+      "fixture": {
+        "path": "benchmark/fixtures/broken-main-image.html",
+        "fixedPath": "benchmark/fixtures/healthy.html"
+      },
       "viewport": { "width": 390, "height": 844 },
       "expected": {
         "supported": true,
@@ -105,7 +110,10 @@
       "platform": "magento",
       "pageType": "pdp",
       "stability": "deterministic",
-      "fixture": { "path": "benchmark/fixtures/broken-gallery-image.html" },
+      "fixture": {
+        "path": "benchmark/fixtures/broken-gallery-image.html",
+        "fixedPath": "benchmark/fixtures/healthy.html"
+      },
       "viewport": { "width": 390, "height": 844 },
       "expected": {
         "supported": true,
@@ -135,6 +143,7 @@
       "stability": "deterministic",
       "fixture": {
         "path": "benchmark/fixtures/add-to-cart-no-confirmation.html",
+        "fixedPath": "benchmark/fixtures/add-to-cart-confirmation.html",
         "interaction": true
       },
       "viewport": { "width": 390, "height": 844 },
@@ -165,7 +174,8 @@
       "pageType": "pdp",
       "stability": "deterministic",
       "fixture": {
-        "path": "benchmark/fixtures/add-to-cart-no-confirmation.html",
+        "path": "benchmark/fixtures/add-to-cart-error.html",
+        "fixedPath": "benchmark/fixtures/add-to-cart-confirmation.html",
         "interaction": true
       },
       "viewport": { "width": 390, "height": 844 },
@@ -180,8 +190,8 @@
         ]
       },
       "businessImpact": "The item is not added, blocking the purchase flow.",
-      "evidence": ["benchmark/fixtures/add-to-cart-no-confirmation.html"],
-      "notes": "Captures the observable PDP outcome of the reported createLineItem failure."
+      "evidence": ["benchmark/fixtures/add-to-cart-error.html"],
+      "notes": "The click handler throws before rendering cart confirmation, matching the reported createLineItem failure."
     },
     {
       "id": "PDP-SCHEMA-001",
@@ -195,7 +205,10 @@
       "platform": "woocommerce",
       "pageType": "pdp",
       "stability": "deterministic",
-      "fixture": { "path": "benchmark/fixtures/missing-jsonld.html" },
+      "fixture": {
+        "path": "benchmark/fixtures/grouped-free-no-jsonld.html",
+        "fixedPath": "benchmark/fixtures/grouped-free-valid-jsonld.html"
+      },
       "viewport": { "width": 390, "height": 844 },
       "expected": {
         "supported": true,
@@ -208,8 +221,8 @@
         ]
       },
       "businessImpact": "Search engines receive no Product entity for the grouped product.",
-      "evidence": ["benchmark/fixtures/missing-jsonld.html"],
-      "notes": "The issue explicitly reports no schema when grouped child prices are zero."
+      "evidence": ["benchmark/fixtures/grouped-free-no-jsonld.html"],
+      "notes": "Reproduces the issue's zero-priced grouped product: the UI says Free! while Product schema is absent."
     },
     {
       "id": "PDP-SCHEMA-002",
@@ -223,7 +236,10 @@
       "platform": "custom-storefront",
       "pageType": "pdp",
       "stability": "deterministic",
-      "fixture": { "path": "benchmark/fixtures/missing-jsonld.html" },
+      "fixture": {
+        "path": "benchmark/fixtures/missing-jsonld.html",
+        "fixedPath": "benchmark/fixtures/healthy.html"
+      },
       "viewport": { "width": 390, "height": 844 },
       "expected": {
         "supported": true,
@@ -251,7 +267,10 @@
       "platform": "custom-storefront",
       "pageType": "pdp",
       "stability": "deterministic",
-      "fixture": { "path": "benchmark/fixtures/missing-jsonld.html" },
+      "fixture": {
+        "path": "benchmark/fixtures/missing-jsonld.html",
+        "fixedPath": "benchmark/fixtures/healthy.html"
+      },
       "viewport": { "width": 390, "height": 844 },
       "expected": {
         "supported": true,
@@ -279,7 +298,10 @@
       "platform": "custom-storefront",
       "pageType": "pdp",
       "stability": "deterministic",
-      "fixture": { "path": "benchmark/fixtures/missing-jsonld.html" },
+      "fixture": {
+        "path": "benchmark/fixtures/missing-jsonld.html",
+        "fixedPath": "benchmark/fixtures/healthy.html"
+      },
       "viewport": { "width": 390, "height": 844 },
       "expected": {
         "supported": true,
@@ -307,7 +329,10 @@
       "platform": "custom-storefront",
       "pageType": "pdp",
       "stability": "deterministic",
-      "fixture": { "path": "benchmark/fixtures/missing-jsonld.html" },
+      "fixture": {
+        "path": "benchmark/fixtures/missing-jsonld.html",
+        "fixedPath": "benchmark/fixtures/healthy.html"
+      },
       "viewport": { "width": 390, "height": 844 },
       "expected": {
         "supported": true,
@@ -335,7 +360,10 @@
       "platform": "custom-storefront",
       "pageType": "pdp",
       "stability": "deterministic",
-      "fixture": { "path": "benchmark/fixtures/missing-jsonld.html" },
+      "fixture": {
+        "path": "benchmark/fixtures/missing-jsonld.html",
+        "fixedPath": "benchmark/fixtures/healthy.html"
+      },
       "viewport": { "width": 390, "height": 844 },
       "expected": {
         "supported": true,
@@ -363,7 +391,10 @@
       "platform": "custom-storefront",
       "pageType": "pdp",
       "stability": "deterministic",
-      "fixture": { "path": "benchmark/fixtures/missing-jsonld.html" },
+      "fixture": {
+        "path": "benchmark/fixtures/missing-jsonld.html",
+        "fixedPath": "benchmark/fixtures/healthy.html"
+      },
       "viewport": { "width": 390, "height": 844 },
       "expected": {
         "supported": true,
@@ -391,7 +422,10 @@
       "platform": "custom-storefront",
       "pageType": "pdp",
       "stability": "deterministic",
-      "fixture": { "path": "benchmark/fixtures/missing-jsonld.html" },
+      "fixture": {
+        "path": "benchmark/fixtures/missing-jsonld.html",
+        "fixedPath": "benchmark/fixtures/healthy.html"
+      },
       "viewport": { "width": 390, "height": 844 },
       "expected": {
         "supported": true,
@@ -419,7 +453,10 @@
       "platform": "custom-storefront",
       "pageType": "pdp",
       "stability": "deterministic",
-      "fixture": { "path": "benchmark/fixtures/missing-jsonld.html" },
+      "fixture": {
+        "path": "benchmark/fixtures/missing-jsonld.html",
+        "fixedPath": "benchmark/fixtures/healthy.html"
+      },
       "viewport": { "width": 390, "height": 844 },
       "expected": {
         "supported": true,
@@ -447,7 +484,10 @@
       "platform": "custom-storefront",
       "pageType": "pdp",
       "stability": "deterministic",
-      "fixture": { "path": "benchmark/fixtures/healthy.html" },
+      "fixture": {
+        "path": "benchmark/fixtures/healthy.html",
+        "fixedPath": "benchmark/fixtures/healthy.html"
+      },
       "viewport": { "width": 390, "height": 844 },
       "expected": {
         "supported": true,
@@ -485,7 +525,10 @@
       "platform": "custom-storefront",
       "pageType": "pdp",
       "stability": "deterministic",
-      "fixture": { "path": "benchmark/fixtures/healthy.html" },
+      "fixture": {
+        "path": "benchmark/fixtures/healthy.html",
+        "fixedPath": "benchmark/fixtures/healthy.html"
+      },
       "viewport": { "width": 390, "height": 844 },
       "expected": {
         "supported": true,

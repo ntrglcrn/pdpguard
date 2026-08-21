@@ -66,7 +66,10 @@ export function matchesPurchaseInquiry(value: string): boolean {
   );
 }
 
-export function findVisiblePriceText(texts: string[]): string | null {
+export function findVisiblePriceText(
+  texts: string[],
+  explicitPriceTexts: string[] = [],
+): string | null {
   for (const text of texts) {
     const normalized = text.replace(/\s+/g, " ").trim();
     if (
@@ -76,6 +79,10 @@ export function findVisiblePriceText(texts: string[]): string | null {
     ) {
       return normalized.match(PRICE_PATTERN)?.[0] ?? normalized;
     }
+  }
+  for (const text of explicitPriceTexts) {
+    const normalized = text.replace(/\s+/g, " ").trim();
+    if (/^free!?$/iu.test(normalized)) return normalized;
   }
   return null;
 }
