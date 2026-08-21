@@ -85,12 +85,12 @@ tenant ownership и hosted foundation boundaries. `main` используетс�
 - [x] Минимальная hosted security architecture документирована в
       `docs/hosted-security-boundary.md`; её worker, tenant и artifact controls
       являются future requirements и ещё не реализованы.
-- [x] Определена минимальная in-memory model Workspace → Store → Audit Run →
-      Finding / Artifact reference с owner/member boundary и проверкой полного
-      ownership chain в server-side service. Это foundation contract, не
-      durable hosted persistence и не authentication system.
-- [ ] Нет authenticated accounts, durable persistence, очереди, isolated
-      workers, catalog scanning, public SaaS API, exports и integrations.
+- [x] Реализована persisted SQLite model Workspace → Store → Audit Run →
+      Finding / Artifact с hashed sessions, owner/member RBAC, scoped worker
+      capabilities, durable terminal run states и проверкой полного ownership
+      chain. Artifact bytes не возвращаются без workspace membership.
+- [ ] Нет external identity flow, isolated workers, queues, hosted object
+      storage, catalog scanning, public SaaS API, exports и integrations.
 
 Технические долги, подтверждённые текущей проверкой:
 
@@ -395,15 +395,15 @@ product.
 - [x] Определить минимальную persistence model: workspace, member, store,
       audit run, finding и screenshot reference. **Priority:** Critical.
       **Impact:** закрепляет ownership contract для минимальной коммерческой
-      модели; durable database и authentication остаются следующей задачей.
-- [ ] Добавить authentication и workspace authorization до сохранения customer
+      модели; SQLite является single-node foundation, не hosted database.
+- [x] Добавить authentication и workspace authorization до сохранения customer
       URLs/results. **Priority:** Critical. **Impact:** создаёт tenant boundary.
 - [ ] Изолировать browser workers и заменить global lock durable job state.
       **Priority:** Critical. **Impact:** защищает web app от untrusted browser work
       и позволяет horizontal scaling.
-- [ ] Перенести screenshots в durable object storage с access control и
-      retention. **Priority:** High. **Impact:** local files не подходят для
-      deployment и multi-tenant access.
+- [ ] Перенести защищённые SQLite artifact blobs в durable object storage с
+      тем же access control и retention. **Priority:** High. **Impact:**
+      single-node database не подходит для horizontal deployment.
 - [ ] Добавить audit history и single-run report. **Priority:** High.
       **Impact:** делает результаты повторно полезными клиенту.
 

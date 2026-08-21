@@ -4,8 +4,7 @@ PDP Guard is a local MVP for auditing one public ecommerce product page at a tim
 
 ## Supported environment
 
-- Node.js 24.x for the supported verification environment (`package.json`
-  retains the framework minimum of Node.js 20.9)
+- Node.js 24.x (required by the native SQLite persistence foundation)
 - pnpm 10.28.0
 - Playwright 1.62.1 with its matching Chromium build
 
