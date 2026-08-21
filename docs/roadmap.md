@@ -51,6 +51,12 @@ AI может помогать группировать или объяснят�
 
 Проект — один Next.js 16 application, пока локальный MVP.
 
+Development идёт двумя параллельными workstreams: `engine` развивает
+детерминированные audit rules и browser execution, `saas-foundation` развивает
+tenant ownership и hosted foundation boundaries. `main` используется только
+для integration, разрешения конфликтов и полного verification объединённого
+состояния; feature work напрямую в `main` не начинается.
+
 - [x] UI запускает аудит одной публичной HTTP(S)-страницы и показывает
       findings и full-page screenshot в viewport 390 × 844.
 - [x] Playwright runner ограничивает время аудита, redirects и высоту
@@ -58,16 +64,17 @@ AI может помогать группировать или объяснят�
       `domcontentloaded` ждёт bounded structural readiness перед rules.
 - [x] URL проходят DNS-проверку: локальные, private, reserved и URL с
       credentials отклоняются до навигации и при запросах страницы.
-- [x] Есть типизированные `Finding`, summary и девять независимых правил:
-      availability, title, canonical URL, robots indexing, product image, broken
-      images, visible price, purchase CTA и Product/ProductGroup JSON-LD.
+- [x] Есть типизированные `Finding`, summary и десять независимых правил:
+      availability, title, canonical URL, robots indexing, product image,
+      primary product image alt text, broken images, visible price, purchase CTA
+      и Product/ProductGroup JSON-LD.
 - [x] Есть unit-тесты URL safety, summary, price/CTA matching и JSON-LD, а
       также browser fixtures для текущих эвристик и delayed/permanent/immediate
       readiness states. В `docs/calibration.md` есть ручная калибровка 25 live
       URL (23 включены, два anti-bot случая исключены).
 - [x] Скриншоты временно хранятся локально до 24 часов.
 - [x] Есть исполнимый benchmark с локальным manifest, positive/negative
-      controls для девяти правил, 13 именованными purchase CTA regressions,
+      controls для десяти правил, 13 именованными purchase CTA regressions,
       regressions для lazy image placeholder, robots indexing directives и
       permanent loader execution state, а также Product/Offer JSON-LD
       semantics и командой `pnpm benchmark`.
@@ -636,6 +643,23 @@ Metrics measure product trust and customer value, not raw scan volume.
 
 # Current Focus
 
-**Deterministic alt text check для уже выбранного primary product image
-завершён: он использует existing image snapshot и не смешивается с общей
-lazy-load readiness. Следующий Engine Current Focus не выбран.**
+`main` — integration only: он объединяет завершённые commits обоих workstreams
+и не имеет отдельного feature focus.
+
+## Engine Current Focus
+
+**Добавить lazy-load readiness для product image после отдельной calibration,
+не смешивая delivery state с завершённым alt text rule.**
+
+Deterministic primary product image alt text check завершён и использует
+existing image snapshot. Structured Product/Offer semantics также сохранены в
+объединённом benchmark.
+
+## SaaS Current Focus
+
+**Добавить реальную authentication boundary и workspace authorization до
+durable хранения customer URLs и audit results.**
+
+Минимальная in-memory hierarchy Workspace → Store → Audit Run → Finding /
+Artifact reference и owner/member ownership checks завершены. Durable database,
+public routes, queues, isolated workers и object storage ещё не реализованы.
