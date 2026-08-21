@@ -26,6 +26,7 @@ export const benchmarkRuleIds = [
   "canonical-url",
   "robots-indexing",
   "product-image",
+  "product-image-alt-text",
   "broken-images",
   "product-price",
   "purchase-cta",
@@ -101,6 +102,15 @@ export const benchmarkCases = [
     control: "positive",
     html: "<main><h1>Silk Shirt</h1><p>$129.00</p></main>",
     expected: { ruleId: "product-image", status: "failed" },
+  },
+  {
+    name: "product-image-alt-text/positive-control/empty-primary-image-alt",
+    control: "positive",
+    html: `
+      <main><img alt="" width="500" height="600"
+        src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='500' height='600'%3E%3Crect width='500' height='600' fill='%23333'/%3E%3C/svg%3E"></main>
+    `,
+    expected: { ruleId: "product-image-alt-text", status: "failed" },
   },
   {
     name: "broken-images/positive-control/visible-broken-image",

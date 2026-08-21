@@ -348,9 +348,12 @@ recommendation, benchmark cases и calibration evidence. Critical использ
       **Priority:** High. **Impact:** finding различает отсутствие Product
       offer, price и priceCurrency, поддерживает ProductGroup variants и не
       превращает рекомендованную availability в warning.
-- [ ] Добавить alt text и lazy-load readiness для product image, используя
-      existing image snapshot. **Priority:** Medium. **Impact:** даёт coverage
-      accessibility и image delivery без нового browser flow.
+- [x] Добавить deterministic alt text check для выбранного primary product
+      image, используя existing image snapshot. **Priority:** Medium. **Impact:**
+      даёт accessibility coverage без нового browser flow.
+- [ ] Добавить lazy-load readiness для product image после отдельной
+      calibration. **Priority:** Medium. **Impact:** расширяет image delivery
+      coverage без смешения с alt text check.
 - [ ] Добавлять breadcrumbs, reviews и variant-state checks только после
       реальных примеров с устойчивой семантикой. **Priority:** Medium. **Impact:**
       полезны, но сильно зависят от storefront implementation.
@@ -628,12 +631,6 @@ Metrics measure product trust and customer value, not raw scan volume.
 
 # Current Focus
 
-**Добавить deterministic alt text check для уже выбранного primary product
-image, используя existing image snapshot и не смешивая его с общей lazy-load
-readiness.**
-
-`structured-product-data` теперь различает typed Offer, AggregateOffer и
-OfferShippingDetails, требует priceCurrency для поддерживаемой цены и оставляет
-рекомендованную availability информационным PASS. ProductGroup variants,
-несколько JSON-LD blocks и multiple Offers закреплены benchmark regressions.
-Readiness/mobile loader work остаётся закрытым и не входит в следующий focus.
+**Deterministic alt text check для уже выбранного primary product image
+завершён: он использует existing image snapshot и не смешивается с общей
+lazy-load readiness. Следующий Engine Current Focus не выбран.**
