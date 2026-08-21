@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { chromium, type Browser, type Page, type Response } from "playwright";
 
 import { runAuditRules } from "@/lib/audit/rules";
+import { extractProductUrls } from "@/lib/category-discovery";
 
 let browser: Browser;
 let page: Page;
@@ -16,6 +17,27 @@ afterAll(async () => {
 });
 
 describe("browser audit rules", () => {
+  it("extracts same-origin PDP links from a category fixture", async () => {
+    await page.setContent(`
+      <base href="https://shop.example/collections/shoes">
+      <a href="/products/red-shoe">Red shoe</a>
+      <a href="/item/42#details">Item 42</a>
+      <a href="/p/blue-shirt">Blue shirt</a>
+      <a href="/collections/sale">Sale</a>
+      <a href="https://other.example/products/external">External</a>
+      <a href="/item/42">Duplicate</a>
+    `);
+
+    await expect(extractProductUrls(page)).resolves.toEqual({
+      urls: [
+        "https://shop.example/products/red-shoe",
+        "https://shop.example/item/42",
+        "https://shop.example/p/blue-shirt",
+      ],
+      truncated: false,
+    });
+  });
+
   it("passes a complete local PDP fixture and produces a screenshot", async () => {
     await page.setContent(`
       <!doctype html><html><head><title>Silk Shirt</title>

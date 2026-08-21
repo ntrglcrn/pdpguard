@@ -10,6 +10,7 @@ import {
   screenshotStorage,
   type ScreenshotStorage,
 } from "@/lib/screenshot-storage";
+import { installBrowserNetworkGuard } from "@/lib/browser-network-guard";
 import {
   systemDnsResolver,
   UnsafeUrlError,
@@ -18,7 +19,6 @@ import {
 } from "@/lib/url-safety";
 
 const VIEWPORT = { width: 390, height: 844 };
-const MAX_REDIRECTS = 5;
 const AUDIT_TIMEOUT_MS = 45_000;
 const MAX_SCREENSHOT_HEIGHT = 20_000;
 
@@ -34,16 +34,6 @@ export class AuditPageTooLargeError extends Error {
     super("The page is too large to capture safely.");
     this.name = "AuditPageTooLargeError";
   }
-}
-
-function redirectCount(request: import("playwright").Request): number {
-  let count = 0;
-  let previous = request.redirectedFrom();
-  while (previous) {
-    count += 1;
-    previous = previous.redirectedFrom();
-  }
-  return count;
 }
 
 export class PlaywrightAuditRunner implements AuditRunner {
@@ -76,50 +66,11 @@ export class PlaywrightAuditRunner implements AuditRunner {
       page.setDefaultTimeout(10_000);
       page.setDefaultNavigationTimeout(30_000);
 
-      let blockedRequestCount = 0;
-      let observedRedirectCount = 0;
-      let fatalSafetyError: UnsafeUrlError | null = null;
-      const safeHostCache = new Set<string>();
-
-      await context.route("**/*", async (route) => {
-        const request = route.request();
-        const isMainNavigation =
-          request.isNavigationRequest() && request.frame() === page.mainFrame();
-        const currentRedirectCount = isMainNavigation
-          ? redirectCount(request)
-          : 0;
-        observedRedirectCount = Math.max(
-          observedRedirectCount,
-          currentRedirectCount,
-        );
-
-        try {
-          if (currentRedirectCount > MAX_REDIRECTS) {
-            throw new UnsafeUrlError(
-              `The page exceeded ${MAX_REDIRECTS} redirects.`,
-            );
-          }
-
-          const requestUrl = new URL(request.url());
-          const cacheKey = `${requestUrl.protocol}//${requestUrl.hostname}:${requestUrl.port}`;
-          if (isMainNavigation || !safeHostCache.has(cacheKey)) {
-            await validatePublicUrl(request.url(), this.resolver);
-            if (!isMainNavigation) safeHostCache.add(cacheKey);
-          }
-          await route.continue();
-        } catch (error) {
-          blockedRequestCount += 1;
-          if (isMainNavigation) {
-            fatalSafetyError =
-              error instanceof UnsafeUrlError
-                ? error
-                : new UnsafeUrlError("An unsafe navigation was blocked.");
-          }
-          await route.abort("blockedbyclient");
-        }
-      });
-
-      await context.routeWebSocket("**/*", (socket) => socket.close());
+      const networkGuard = await installBrowserNetworkGuard(
+        context,
+        page,
+        this.resolver,
+      );
 
       let mainResponse: import("playwright").Response | null = null;
       try {
@@ -127,11 +78,11 @@ export class PlaywrightAuditRunner implements AuditRunner {
           waitUntil: "domcontentloaded",
         });
       } catch (error) {
-        if (fatalSafetyError) throw fatalSafetyError;
+        if (networkGuard.fatalSafetyError) throw networkGuard.fatalSafetyError;
         if (timedOut) throw new AuditTimeoutError();
         throw error;
       }
-      if (fatalSafetyError) throw fatalSafetyError;
+      if (networkGuard.fatalSafetyError) throw networkGuard.fatalSafetyError;
 
       await page
         .waitForLoadState("load", { timeout: 8_000 })
@@ -170,8 +121,8 @@ export class PlaywrightAuditRunner implements AuditRunner {
           viewport: VIEWPORT,
           userAgent: await page.evaluate(() => navigator.userAgent),
           httpStatus: mainResponse?.status() ?? null,
-          redirectCount: observedRedirectCount,
-          blockedRequestCount,
+          redirectCount: networkGuard.redirectCount,
+          blockedRequestCount: networkGuard.blockedRequestCount,
         },
       };
     } catch (error) {

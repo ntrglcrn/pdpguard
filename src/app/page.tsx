@@ -82,7 +82,7 @@ export default function AuditWorkspace() {
   const [state, setState] = useState<ViewState>("initial");
   const [result, setResult] = useState<AuditResult | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
-  const [sitemapUrl, setSitemapUrl] = useState("");
+  const [catalogUrl, setCatalogUrl] = useState("");
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [catalogFieldError, setCatalogFieldError] = useState<string | null>(
     null,
@@ -137,7 +137,10 @@ export default function AuditWorkspace() {
 
   async function discoverPages(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const validationError = clientValidation(sitemapUrl.trim(), "sitemap");
+    const validationError = clientValidation(
+      catalogUrl.trim(),
+      "sitemap or category",
+    );
     setCatalogFieldError(validationError);
     if (validationError) return;
 
@@ -148,7 +151,7 @@ export default function AuditWorkspace() {
       const response = await fetch("/api/catalog/discover", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: sitemapUrl.trim() }),
+        body: JSON.stringify({ url: catalogUrl.trim() }),
       });
       const payload = (await response.json()) as
         CatalogDiscoveryResult | { error?: string };
@@ -156,7 +159,7 @@ export default function AuditWorkspace() {
         throw new Error(
           "error" in payload && payload.error
             ? payload.error
-            : "Sitemap discovery failed.",
+            : "Catalog discovery failed.",
         );
       }
       setCatalog(payload as CatalogDiscoveryResult);
@@ -164,7 +167,7 @@ export default function AuditWorkspace() {
       setCatalogError(
         caught instanceof Error
           ? caught.message
-          : "The sitemap could not be read.",
+          : "The catalog source could not be read.",
       );
     } finally {
       setCatalogLoading(false);
@@ -271,32 +274,33 @@ export default function AuditWorkspace() {
           <div className="panel-heading">
             <div>
               <p className="eyebrow">Catalog discovery</p>
-              <h2 id="catalog-title">Find pages from a sitemap</h2>
+              <h2 id="catalog-title">Find product pages</h2>
               <p>
-                Preview up to 200 page URLs before batch auditing is enabled.
+                Use a category page for PDP candidates or an XML sitemap for a
+                general URL preview.
               </p>
             </div>
             <span className="viewport-chip">Stage 2</span>
           </div>
 
           <form onSubmit={discoverPages} noValidate>
-            <label htmlFor="sitemap-url">Sitemap URL</label>
+            <label htmlFor="catalog-url">Sitemap or category URL</label>
             <div className="input-row">
               <input
-                id="sitemap-url"
-                name="sitemapUrl"
+                id="catalog-url"
+                name="catalogUrl"
                 type="url"
                 inputMode="url"
                 autoComplete="url"
-                placeholder="https://store.example/sitemap.xml"
-                value={sitemapUrl}
+                placeholder="https://store.example/collections/shoes"
+                value={catalogUrl}
                 aria-invalid={Boolean(catalogFieldError)}
                 aria-describedby={
-                  catalogFieldError ? "sitemap-error" : "sitemap-help"
+                  catalogFieldError ? "catalog-error" : "catalog-help"
                 }
                 disabled={catalogLoading}
                 onChange={(event) => {
-                  setSitemapUrl(event.target.value);
+                  setCatalogUrl(event.target.value);
                   if (catalogFieldError) setCatalogFieldError(null);
                 }}
               />
@@ -306,24 +310,24 @@ export default function AuditWorkspace() {
                     <span className="spinner" aria-hidden="true" /> Discovering
                   </>
                 ) : (
-                  "Discover pages"
+                  "Find products"
                 )}
               </button>
             </div>
             {catalogFieldError ? (
-              <p className="field-error" id="sitemap-error" role="alert">
+              <p className="field-error" id="catalog-error" role="alert">
                 {catalogFieldError}
               </p>
             ) : (
-              <p className="field-help" id="sitemap-help">
-                Public HTTP and HTTPS sitemaps only. No audits run yet.
+              <p className="field-help" id="catalog-help">
+                Public HTTP and HTTPS pages only. No audits run yet.
               </p>
             )}
           </form>
 
           {catalogError && (
             <div className="error-state" role="alert">
-              <strong>Sitemap could not be read</strong>
+              <strong>Catalog source could not be read</strong>
               <p>{catalogError}</p>
             </div>
           )}
@@ -331,10 +335,16 @@ export default function AuditWorkspace() {
           {catalog && (
             <div className="catalog-result" aria-live="polite">
               <div className="catalog-summary">
-                <strong>{catalog.pageUrls.length} pages found</strong>
+                <strong>
+                  {catalog.pageUrls.length}{" "}
+                  {catalog.sourceType === "category"
+                    ? "product pages found"
+                    : "pages found"}
+                </strong>
                 <span>
-                  {catalog.inspectedSitemaps} sitemap
-                  {catalog.inspectedSitemaps === 1 ? "" : "s"} inspected
+                  {catalog.inspectedSources}{" "}
+                  {catalog.sourceType === "category" ? "category" : "sitemap"}
+                  {catalog.inspectedSources === 1 ? "" : "s"} inspected
                 </span>
               </div>
               {catalog.truncated && (
@@ -354,8 +364,7 @@ export default function AuditWorkspace() {
                 </ol>
               ) : (
                 <p className="catalog-note">
-                  This sitemap contains no page URLs within the discovery
-                  limits.
+                  No matching URLs were found within the discovery limits.
                 </p>
               )}
             </div>

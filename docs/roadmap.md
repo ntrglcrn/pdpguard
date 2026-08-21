@@ -9,9 +9,13 @@ a local preview. It follows validated redirects and child sitemaps, reads at
 most 10 sitemap files / 5 MB, and returns at most 200 page URLs from origins
 that supplied a validated sitemap. It does not start audits automatically.
 
-Next: calibrate discovery against real store sitemaps, then add a small bounded
-batch audit. Background jobs and persistence wait until synchronous batches
-prove useful and their resource limits are understood.
+Category discovery is also available as an initial Stage 2.2 preview. It opens
+one public category in the protected mobile browser, scrolls the rendered page,
+and returns at most 100 same-origin links matching common PDP path patterns.
+
+Next: calibrate category discovery across real storefronts, then add a small
+bounded batch audit. Background jobs and persistence wait until synchronous
+batches prove useful and their resource limits are understood.
 
 ## Stage 3 — Ecommerce interaction testing
 

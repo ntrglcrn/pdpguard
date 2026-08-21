@@ -233,9 +233,10 @@ export async function discoverCatalog(
     if (queue.length) truncated = true;
 
     return {
-      sitemapUrl: rootUrl,
+      sourceUrl: rootUrl,
+      sourceType: "sitemap",
       pageUrls: [...pageUrls],
-      inspectedSitemaps: seenSitemaps.size,
+      inspectedSources: seenSitemaps.size,
       truncated,
     };
   } catch (error) {

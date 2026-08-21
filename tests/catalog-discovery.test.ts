@@ -28,7 +28,8 @@ describe("discoverCatalog", () => {
       }),
     ).resolves.toMatchObject({
       pageUrls: ["https://shop.example/products/shirt?a=1&b=2"],
-      inspectedSitemaps: 1,
+      sourceType: "sitemap",
+      inspectedSources: 1,
       truncated: false,
     });
   });
@@ -59,9 +60,9 @@ describe("discoverCatalog", () => {
     });
 
     expect(result).toMatchObject({
-      sitemapUrl: "https://shop.example/sitemap-index.xml",
+      sourceUrl: "https://shop.example/sitemap-index.xml",
       pageUrls: ["https://shop.example/item/42"],
-      inspectedSitemaps: 2,
+      inspectedSources: 2,
     });
     expect(fetcher).toHaveBeenCalledTimes(3);
   });
@@ -86,7 +87,7 @@ describe("discoverCatalog", () => {
       }),
     ).resolves.toMatchObject({
       pageUrls: ["https://shop.example/item/42"],
-      inspectedSitemaps: 2,
+      inspectedSources: 2,
     });
   });
 
