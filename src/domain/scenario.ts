@@ -12,6 +12,7 @@ export type ScenarioLocator =
         | "button"
         | "checkbox"
         | "dialog"
+        | "heading"
         | "link"
         | "option"
         | "radio"
@@ -48,6 +49,7 @@ export type ScenarioStep =
       source: "text" | "value" | `attribute:${string}`;
     }
   | { capture: "fingerprint"; name: string }
+  | { capture: "url"; name: string }
   | {
       capture: "linkTarget";
       name: string;
@@ -55,6 +57,15 @@ export type ScenarioStep =
       part: { query: string } | { pathSegment: number };
     }
   | { assert: "url"; equals?: string; matches?: string }
+  | { assert: "urlChanged"; from: string }
+  | { assert: "mainContentChanged"; from: string }
+  | { assert: "navigationCompleted"; urlMatches?: string }
+  | { assert: "errorPage"; locator: ScenarioLocator }
+  | {
+      assert: "historyBack";
+      url: string;
+      contentFrom?: string;
+    }
   | { assert: "visibleText"; text: string; locator?: ScenarioLocator }
   | { assert: "absentText"; text: string; locator?: ScenarioLocator }
   | {
@@ -63,6 +74,31 @@ export type ScenarioStep =
       state: "visible" | "hidden" | "enabled" | "selected" | "reachable";
     }
   | { assert: "fingerprintChanged"; from: string }
+  | {
+      assert: "productIdentity";
+      kind: "title" | "sku" | "productId";
+      expected: string;
+      locator: ScenarioLocator;
+      source?: "text" | "value" | `attribute:${string}`;
+    }
+  | {
+      assert: "productIdentity";
+      kind: "canonicalUrl";
+      expected: string;
+    }
+  | {
+      assert: "productIdentity";
+      kind: "jsonLd";
+      field: "@id" | "name" | "productID" | "productId" | "sku" | "url";
+      expected: string;
+    }
+  | { assert: "escapeClosesDialog"; locator: ScenarioLocator }
+  | {
+      assert: "reachability";
+      locator: ScenarioLocator;
+      check:
+        "reachable" | "centerClickable" | "notCovered" | "scrollableIntoView";
+    }
   | {
       assert: "capturedValue";
       locator: ScenarioLocator;
