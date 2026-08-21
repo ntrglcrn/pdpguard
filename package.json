@@ -14,8 +14,10 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "clean": "node -e \"require('node:fs').rmSync('.next',{recursive:true,force:true})\"",
+    "typecheck": "pnpm clean && next typegen && tsc --noEmit",
+    "test": "vitest run --exclude 'tests/benchmark/**'",
+    "benchmark": "vitest run tests/benchmark/runner.test.ts",
     "test:watch": "vitest"
   },
   "dependencies": {

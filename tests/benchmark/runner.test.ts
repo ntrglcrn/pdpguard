@@ -1,0 +1,50 @@
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { chromium, type Browser, type Page } from "playwright";
+
+import { runAuditRules } from "@/lib/audit/rules";
+import { benchmarkCases, benchmarkRuleIds } from "./manifest";
+
+let browser: Browser | undefined;
+let page: Page;
+
+beforeAll(async () => {
+  browser = await chromium.launch();
+  page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+});
+
+afterAll(async () => {
+  await browser?.close();
+});
+
+describe("audit rule benchmark", () => {
+  it("declares positive and negative controls for every stable ruleId", () => {
+    for (const ruleId of benchmarkRuleIds) {
+      const controls = benchmarkCases
+        .filter((benchmarkCase) => benchmarkCase.expected.ruleId === ruleId)
+        .map((benchmarkCase) => benchmarkCase.control);
+      expect(controls, `${ruleId} controls`).toEqual(["negative", "positive"]);
+    }
+  });
+
+  for (const benchmarkCase of benchmarkCases) {
+    it(benchmarkCase.name, async () => {
+      await page.setContent(benchmarkCase.html);
+      await page.locator("img").evaluateAll(async (images) => {
+        await Promise.allSettled(
+          images.map((image) => (image as HTMLImageElement).decode()),
+        );
+      });
+
+      const findings = await runAuditRules({ page, mainResponse: null });
+      const actual = findings.find(
+        (finding) => finding.ruleId === benchmarkCase.expected.ruleId,
+      );
+
+      if (actual?.status !== benchmarkCase.expected.status) {
+        throw new Error(
+          `Benchmark case "${benchmarkCase.name}" expected ${benchmarkCase.expected.ruleId}=${benchmarkCase.expected.status}, actual=${actual?.status ?? "missing"}.`,
+        );
+      }
+    });
+  }
+});
