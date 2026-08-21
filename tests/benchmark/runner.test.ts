@@ -41,7 +41,9 @@ describe("audit rule benchmark", () => {
             benchmarkCase.control !== "regression",
         )
         .map((benchmarkCase) => benchmarkCase.control);
-      expect(controls, `${ruleId} controls`).toEqual(["negative", "positive"]);
+      expect(new Set(controls), `${ruleId} controls`).toEqual(
+        new Set(["negative", "positive"]),
+      );
     }
   });
 

@@ -193,6 +193,93 @@ export const robotsIndexingRule: AuditRule = async ({ page, mainResponse }) => {
   });
 };
 
+export const shareUrlIntegrityRule: AuditRule = async ({ page }) => {
+  const snapshot = await page.evaluate(() => {
+    const rendered = (element: Element) => {
+      const rect = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      return (
+        style.display !== "none" &&
+        style.visibility !== "hidden" &&
+        Number(style.opacity) > 0 &&
+        rect.width > 0 &&
+        rect.height > 0
+      );
+    };
+    const placeholder =
+      /(?:^|[/?#=&])(?:undefined|null)(?=$|[/?#=&])|\$\{[^}]+\}|\{[^{}]+\}|(?:^|\/)(?:\[[^[\]/]+\]|:[a-z][\w-]*)(?=\/|[?#]|$)/iu;
+    const anchors = Array.from(
+      document.querySelectorAll<HTMLAnchorElement>(
+        [
+          "a[aria-label*='share' i]",
+          "a[title*='share' i]",
+          "a[data-share]",
+          "a[href*='facebook.com/sharer' i]",
+          "a[href*='twitter.com/intent' i]",
+          "a[href*='x.com/intent' i]",
+          "a[href*='linkedin.com/sharing' i]",
+          "a[href*='pinterest.com/pin/create' i]",
+          "a[href*='t.me/share' i]",
+          "a[href*='whatsapp' i]",
+        ].join(","),
+      ),
+    )
+      .filter(rendered)
+      .slice(0, 100);
+    const invalid = anchors.flatMap((anchor) => {
+      const raw = anchor.getAttribute("href")?.trim() ?? "";
+      let decoded = raw;
+      try {
+        decoded = decodeURIComponent(raw);
+      } catch {
+        // Malformed encoding is outside this placeholder-only rule.
+      }
+      const match =
+        raw.match(placeholder)?.[0] ?? decoded.match(placeholder)?.[0];
+      if (!match) return [];
+      return [
+        {
+          label: (
+            anchor.getAttribute("aria-label") ||
+            anchor.getAttribute("title") ||
+            anchor.innerText ||
+            "Share link"
+          )
+            .replace(/\s+/g, " ")
+            .trim()
+            .slice(0, 80),
+          placeholder: match.replace(/^[/?#=&]/, "").slice(0, 80),
+        },
+      ];
+    });
+
+    return { checked: anchors.length, invalid };
+  });
+  const passed = snapshot.invalid.length === 0;
+
+  return finding({
+    id: "share-url-integrity",
+    ruleId: "share-url-integrity",
+    title: "Share URL integrity",
+    description: passed
+      ? "No placeholder segments were found in visible static share URLs."
+      : "A visible static share URL contains an unresolved placeholder.",
+    severity: passed ? "info" : "warning",
+    status: passed ? "passed" : "failed",
+    evidence: passed
+      ? [`Checked ${snapshot.checked} visible static share URLs.`]
+      : snapshot.invalid
+          .slice(0, 5)
+          .map(
+            ({ label, placeholder }) =>
+              `Share link “${label}” contains placeholder “${placeholder}”.`,
+          ),
+    recommendation: passed
+      ? "No action is required."
+      : "Render each share link with the resolved public product URL before exposing it to shoppers.",
+  });
+};
+
 interface ImageSnapshot {
   src: string;
   alt: string;
@@ -391,8 +478,8 @@ export const productPriceRule: AuditRule = async ({ page }) => {
     ruleId: "product-price",
     title: "Visible product price",
     description: price
-      ? "A visible currency-formatted price was found."
-      : "No visible currency-formatted price was found.",
+      ? "A valid visible product price was found."
+      : "No valid visible product price was found.",
     severity: price ? "info" : "warning",
     status: price ? "passed" : "failed",
     evidence: [
@@ -403,6 +490,114 @@ export const productPriceRule: AuditRule = async ({ page }) => {
     recommendation: price
       ? "No action is required."
       : "Display a clear product price near the primary purchase controls.",
+  });
+};
+
+export const variantLabelIntegrityRule: AuditRule = async ({ page }) => {
+  const groups = await page.evaluate(() => {
+    const rendered = (element: Element) => {
+      const rect = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      return (
+        style.display !== "none" &&
+        style.visibility !== "hidden" &&
+        Number(style.opacity) > 0 &&
+        rect.width > 0 &&
+        rect.height > 0
+      );
+    };
+    const normalize = (value: string) =>
+      value.replace(/\s+/g, " ").trim().toLocaleLowerCase();
+
+    return Array.from(
+      document.querySelectorAll<HTMLElement>(
+        "select, fieldset, [role='radiogroup']",
+      ),
+    )
+      .filter(rendered)
+      .slice(0, 100)
+      .map((group, index) => {
+        const labels =
+          group instanceof HTMLSelectElement
+            ? Array.from(group.options)
+                .slice(0, 500)
+                .filter((option) => !option.disabled && !option.hidden)
+                .map((option) => option.textContent ?? "")
+            : Array.from(
+                group.querySelectorAll<HTMLElement>(
+                  "input[type='radio'], [role='radio']",
+                ),
+              )
+                .slice(0, 500)
+                .filter(
+                  (control) =>
+                    control.closest("fieldset, [role='radiogroup']") === group,
+                )
+                .map((control) => {
+                  const label =
+                    control instanceof HTMLInputElement
+                      ? control.labels?.[0]
+                      : control;
+                  return label && rendered(label)
+                    ? label.innerText || label.getAttribute("aria-label") || ""
+                    : rendered(control)
+                      ? control.getAttribute("aria-label") || ""
+                      : "";
+                });
+        const values = labels
+          .map((label) => ({ label: label.trim(), key: normalize(label) }))
+          .filter(({ key }) => key.length > 0);
+        const counts = new Map<string, { label: string; count: number }>();
+        for (const { key, label } of values) {
+          const current = counts.get(key);
+          counts.set(key, {
+            label: current?.label ?? label,
+            count: (current?.count ?? 0) + 1,
+          });
+        }
+        const legend = group.querySelector(":scope > legend");
+        const name =
+          group.getAttribute("aria-label")?.trim() ||
+          legend?.textContent?.trim() ||
+          (group instanceof HTMLSelectElement ? group.name : "") ||
+          group.id ||
+          `group ${index + 1}`;
+
+        return {
+          name,
+          optionCount: values.length,
+          duplicates: Array.from(counts.values()).filter(
+            ({ count }) => count > 1,
+          ),
+        };
+      })
+      .filter((group) => group.optionCount > 0);
+  });
+  const duplicates = groups.flatMap((group) =>
+    group.duplicates.map((duplicate) => ({ ...duplicate, group: group.name })),
+  );
+  const passed = duplicates.length === 0;
+
+  return finding({
+    id: "variant-label-integrity",
+    ruleId: "variant-label-integrity",
+    title: "Variant label integrity",
+    description: passed
+      ? "No duplicate labels were found within a visible variant group."
+      : "A visible variant group contains duplicate labels.",
+    severity: passed ? "info" : "warning",
+    status: passed ? "passed" : "failed",
+    evidence: passed
+      ? [`Checked ${groups.length} visible semantic variant groups.`]
+      : duplicates
+          .slice(0, 5)
+          .map(
+            ({ group, label, count }) =>
+              `Group “${group}” repeats label “${label}” ${count} times.`,
+          ),
+    recommendation: passed
+      ? "No action is required."
+      : "Give each option a unique label within its variant group and remove duplicate rendered controls.",
   });
 };
 
@@ -797,10 +992,12 @@ export const auditRules: AuditRule[] = [
   pageTitleRule,
   canonicalUrlRule,
   robotsIndexingRule,
+  shareUrlIntegrityRule,
   productImageRule,
   productImageAltTextRule,
   brokenImagesRule,
   productPriceRule,
+  variantLabelIntegrityRule,
   purchaseCtaRule,
   structuredProductDataRule,
 ];
