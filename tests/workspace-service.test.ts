@@ -1,13 +1,25 @@
-import { describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync, statSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
 
 import type { AuditResult } from "@/domain/audit";
 import { AuthorizationError, WorkspaceService } from "@/lib/workspace-service";
 
-const owner = { kind: "user" as const, userId: "owner" };
-const member = { kind: "user" as const, userId: "member" };
-const outsider = { kind: "user" as const, userId: "outsider" };
-
 const resolver = async () => [{ address: "93.184.216.34", family: 4 }];
+const directories: string[] = [];
+
+afterEach(() => {
+  for (const directory of directories.splice(0))
+    rmSync(directory, { recursive: true, force: true });
+});
+
+function service() {
+  const directory = mkdtempSync(path.join(tmpdir(), "pdpguard-saas-"));
+  directories.push(directory);
+  const databasePath = path.join(directory, "pdpguard.sqlite");
+  return { databasePath, value: new WorkspaceService(databasePath, resolver) };
+}
 
 function result(): AuditResult {
   return {
@@ -45,55 +57,112 @@ function result(): AuditResult {
 }
 
 describe("WorkspaceService", () => {
-  it("derives every child owner from its authorized parent", async () => {
-    const service = new WorkspaceService(resolver);
-    const workspace = service.createWorkspace(owner, "Acme");
-    service.addMember(owner, workspace.id, member.userId);
-    const store = service.createStore(member, workspace.id, {
+  it("persists authenticated ownership, completed runs and protected artifacts", async () => {
+    const { databasePath, value } = service();
+    const ownerSession = value.issueSession("owner");
+    const owner = value.authenticateRequest(
+      new Request("https://app.example", {
+        headers: { cookie: ownerSession.cookie },
+      }),
+    );
+    const workspace = value.createWorkspace(owner, "Acme");
+    const memberSession = value.issueSession("member");
+    value.addMember(owner, workspace.id, "member");
+    const member = value.authenticateSession(memberSession.token);
+    const store = value.createStore(member, workspace.id, {
       name: "Shop",
       url: "https://example.com",
     });
-    const run = await service.createAuditRun(
+    const { run, worker } = await value.createAuditRun(
       member,
       store.id,
       "https://example.com/product#ignored",
     );
+    value.startAuditRun(worker);
+    value.completeAuditRun(worker, result(), {
+      id: "artifact-id",
+      contents: Buffer.from("private screenshot"),
+    });
+    expect(statSync(databasePath).mode & 0o777).toBe(0o600);
+    value.close();
 
-    service.completeAuditRun({ kind: "worker", auditRunId: run.id }, result());
-
-    expect(service.getAuditRun(owner, run.id)).toMatchObject({
+    const reopened = new WorkspaceService(databasePath, resolver);
+    const report = reopened.getAuditRun(
+      reopened.authenticateSession(ownerSession.token),
+      run.id,
+    );
+    expect(report).toMatchObject({
       workspaceId: workspace.id,
       storeId: store.id,
-      targetUrl: "https://example.com/product",
+      status: "completed",
       findings: [{ auditRunId: run.id, ruleId: "title" }],
-      artifacts: [{ auditRunId: run.id, id: "artifact-id" }],
+      artifacts: [{ auditRunId: run.id, id: "artifact-id", byteSize: 18 }],
     });
+    expect(
+      reopened
+        .readArtifact(
+          reopened.authenticateSession(memberSession.token),
+          "artifact-id",
+        )
+        .contents.toString(),
+    ).toBe("private screenshot");
+    reopened.close();
   });
 
-  it("does not reveal stores or runs across workspace boundaries", async () => {
-    const service = new WorkspaceService(resolver);
-    const workspace = service.createWorkspace(owner, "Acme");
-    const store = service.createStore(owner, workspace.id, {
+  it("rejects forged sessions, cross-tenant reads and unscoped workers", async () => {
+    const { value } = service();
+    const owner = value.authenticateSession(value.issueSession("owner").token);
+    const outsider = value.authenticateSession(
+      value.issueSession("outsider").token,
+    );
+    const workspace = value.createWorkspace(owner, "Acme");
+    const store = value.createStore(owner, workspace.id, {
       name: "Shop",
       url: "https://example.com",
     });
-    const run = await service.createAuditRun(
+    const { run, worker } = await value.createAuditRun(
       owner,
       store.id,
       "https://example.com/product",
     );
 
-    expect(() => service.getAuditRun(outsider, run.id)).toThrow(
-      AuthorizationError,
-    );
-    expect(() => service.listStores(outsider, workspace.id)).toThrow(
-      AuthorizationError,
-    );
     expect(() =>
-      service.completeAuditRun(
-        { kind: "worker", auditRunId: "other-run" },
-        result(),
-      ),
+      value.listStores({ ...owner, sessionId: "forged" }, workspace.id),
     ).toThrow(AuthorizationError);
+    expect(() => value.getAuditRun(outsider, run.id)).toThrow(
+      AuthorizationError,
+    );
+    expect(() => value.startAuditRun({ ...worker, token: "forged" })).toThrow(
+      AuthorizationError,
+    );
+    expect(() => value.readArtifact(outsider, "artifact-id")).toThrow(
+      AuthorizationError,
+    );
+    value.close();
+  });
+
+  it("enforces durable run transitions and session revocation", async () => {
+    const { value } = service();
+    const principal = value.authenticateSession(
+      value.issueSession("owner").token,
+    );
+    const workspace = value.createWorkspace(principal, "Acme");
+    const store = value.createStore(principal, workspace.id, {
+      name: "Shop",
+      url: "https://example.com",
+    });
+    const { run, worker } = await value.createAuditRun(
+      principal,
+      store.id,
+      "https://example.com/product",
+    );
+
+    expect(value.cancelAuditRun(principal, run.id).status).toBe("cancelled");
+    expect(() => value.startAuditRun(worker)).toThrow(AuthorizationError);
+    value.revokeSession(principal);
+    expect(() => value.listStores(principal, workspace.id)).toThrow(
+      AuthorizationError,
+    );
+    value.close();
   });
 });

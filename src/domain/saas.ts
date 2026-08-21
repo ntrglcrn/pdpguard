@@ -1,7 +1,20 @@
 import type { AuditResult, Finding } from "@/domain/audit";
 
 export type WorkspaceRole = "owner" | "member";
-export type AuditRunStatus = "queued" | "completed";
+export type AuditRunStatus =
+  "queued" | "running" | "completed" | "failed" | "cancelled";
+
+export interface AuthenticatedUser {
+  kind: "user";
+  userId: string;
+  sessionId: string;
+}
+
+export interface WorkerCapability {
+  kind: "worker";
+  auditRunId: string;
+  token: string;
+}
 
 export interface Workspace {
   id: string;
@@ -30,7 +43,9 @@ export interface AuditRun {
   targetUrl: string;
   status: AuditRunStatus;
   createdAt: string;
+  startedAt: string | null;
   completedAt: string | null;
+  failureCategory: "infrastructure" | "timeout" | "unsafe_url" | null;
   result: Omit<AuditResult, "findings" | "screenshot"> | null;
 }
 
@@ -43,12 +58,12 @@ export interface ArtifactReference {
   auditRunId: string;
   kind: "screenshot";
   contentType: "image/png";
+  byteSize: number;
+  sha256: string;
+  createdAt: string;
 }
 
 export interface AuditRunReport extends AuditRun {
   findings: StoredFinding[];
   artifacts: ArtifactReference[];
 }
-
-export type SaaSPrincipal =
-  { kind: "user"; userId: string } | { kind: "worker"; auditRunId: string };
