@@ -22,7 +22,7 @@ describe("browser audit rules", () => {
       <link rel="canonical" href="https://example.com/products/silk-shirt">
       <script type="application/ld+json">{
         "@type":"Product","name":"Silk Shirt","image":"https://example.com/shirt.jpg",
-        "offers":{"price":"129","availability":"https://schema.org/InStock"}
+        "offers":{"@type":"Offer","price":"129","priceCurrency":"USD","availability":"https://schema.org/InStock"}
       }</script></head><body>
       <main><h1>Silk Shirt</h1>
       <img alt="Black silk shirt" width="500" height="600"
@@ -337,13 +337,75 @@ describe("browser audit rules", () => {
 
   it("uses Product availability for an explicit sold-out state", async () => {
     await page.setContent(`
-      <script type="application/ld+json">{"@type":"Product","offers":{"availability":"https://schema.org/OutOfStock"}}</script>
+      <script type="application/ld+json">{"@type":"Product","offers":{"@type":"Offer","availability":"https://schema.org/OutOfStock"}}</script>
       <main><h1>Product</h1><p class="price">$12</p><button disabled>Add to cart</button></main>
     `);
     const finding = (await runAuditRules({ page, mainResponse: null })).find(
       (item) => item.ruleId === "purchase-cta",
     );
     expect(finding).toMatchObject({ status: "passed", severity: "info" });
+  });
+
+  it("reports priceCurrency missing from a priced Product Offer", async () => {
+    await page.setContent(`
+      <script type="application/ld+json">{
+        "@type":"Product","name":"Serum","image":"https://example.com/serum.jpg",
+        "offers":{"@type":"Offer","price":"29","availability":"https://schema.org/InStock"}
+      }</script><main>Serum</main>
+    `);
+    const finding = (await runAuditRules({ page, mainResponse: null })).find(
+      (item) => item.ruleId === "structured-product-data",
+    );
+    expect(finding).toMatchObject({ status: "failed", severity: "warning" });
+    expect(finding?.description).toContain("without priceCurrency");
+  });
+
+  it("passes a complete Offer without recommended availability", async () => {
+    await page.setContent(`
+      <script type="application/ld+json">{
+        "@type":"Product","name":"Serum","image":"https://example.com/serum.jpg",
+        "offers":{"@type":"Offer","price":"29","priceCurrency":"USD"}
+      }</script><main>Serum</main>
+    `);
+    const finding = (await runAuditRules({ page, mainResponse: null })).find(
+      (item) => item.ruleId === "structured-product-data",
+    );
+    expect(finding).toMatchObject({ status: "passed", severity: "info" });
+    expect(finding?.evidence.join(" ")).toContain(
+      "Google-recommended availability",
+    );
+  });
+
+  it("passes ProductGroup variant Offers", async () => {
+    await page.setContent(`
+      <script type="application/ld+json">{
+        "@type":"ProductGroup","name":"Lip color","hasVariant":[{
+          "@type":"Product","name":"Lip color - Red","image":"https://example.com/red.jpg",
+          "offers":{"@type":"Offer","price":42,"priceCurrency":"USD","availability":"https://schema.org/InStock"}
+        }]
+      }</script><main>Lip color</main>
+    `);
+    const finding = (await runAuditRules({ page, mainResponse: null })).find(
+      (item) => item.ruleId === "structured-product-data",
+    );
+    expect(finding).toMatchObject({ status: "passed", severity: "info" });
+    expect(finding?.description).toContain("ProductGroup");
+  });
+
+  it("does not treat OfferShippingDetails as an applicable Product Offer", async () => {
+    await page.setContent(`
+      <script type="application/ld+json">{
+        "@type":"Product","name":"Serum","image":"https://example.com/serum.jpg",
+        "offers":{"@type":"OfferShippingDetails","shippingRate":{"value":5,"currency":"USD"}}
+      }</script><main>Serum</main>
+    `);
+    const finding = (await runAuditRules({ page, mainResponse: null })).find(
+      (item) => item.ruleId === "structured-product-data",
+    );
+    expect(finding).toMatchObject({ status: "failed", severity: "warning" });
+    expect(finding?.evidence.join(" ")).toContain(
+      "OfferShippingDetails is not a product offer",
+    );
   });
 
   it("reports a visible broken image", async () => {

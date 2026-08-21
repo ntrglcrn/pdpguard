@@ -78,7 +78,7 @@ manual calibration evidence only and are not benchmark or CI dependencies.
 | `broken-images`           | Pass when visible images load                           | Passed          | TN             | No visible image had an empty source or zero natural width  |
 | `product-price`           | Pass for the visible product price                      | Passed          | TN             | `$350.00`                                                   |
 | `purchase-cta`            | Pass because the page exposes an explicit restock state | Passed          | TN             | `SELECT SIZE FOR RESTOCK WAITLIST`; sold-out state detected |
-| `structured-product-data` | Pass for complete Product JSON-LD                       | Passed          | TN             | Name, image, offer price and availability were present      |
+| `structured-product-data` | Pass for complete Product JSON-LD                       | Passed          | TN             | Typed Offer has price, priceCurrency and availability       |
 
 ### Landyachtz — variant selection with unavailable setup
 
@@ -99,7 +99,7 @@ manual calibration evidence only and are not benchmark or CI dependencies.
 | `broken-images`           | Pass when visible images load                   | Passed          | TN             | No visible image had an empty source or zero natural width  |
 | `product-price`           | Pass for the visible product price              | Passed          | TN             | `$219.99`                                                   |
 | `purchase-cta`            | Pass for an explicit unavailable selected setup | Passed          | TN             | Setup controls and `NOTIFY ME WHEN AVAILABLE` were visible  |
-| `structured-product-data` | Pass for complete Product JSON-LD               | Passed          | TN             | Name, image, offer price and availability were present      |
+| `structured-product-data` | Pass for complete Product JSON-LD               | Passed          | TN             | Typed Offer has price, priceCurrency and availability       |
 
 ### Catbird — mandatory region gate and lazy image placeholders
 
@@ -121,7 +121,7 @@ manual calibration evidence only and are not benchmark or CI dependencies.
 | `broken-images`           | Pass because no broken image is visible to the shopper | Warning: two visible images reported with empty `src` | FP             | Product/gallery media render in the screenshot; empty lazy placeholders are counted as broken |
 | `product-price`           | Pass for the visible product price                     | Passed                                                | TN             | `$448.00`                                                                                     |
 | `purchase-cta`            | Fail while the mandatory region gate blocks purchase   | Critical                                              | TP             | `Add to Bag` was blocked at its center by the country selector                                |
-| `structured-product-data` | Pass for complete Product JSON-LD                      | Passed                                                | TN             | Name, image, offer price and availability were present                                        |
+| `structured-product-data` | Pass for complete ProductGroup variant JSON-LD         | Passed                                                | TN             | 19 typed variant Offers have price, priceCurrency and availability                            |
 
 **Resolution:** fixed locally on 2026-08-21. The named benchmark case
 `broken-images/regression/empty-src-lazy-placeholder` preserves this failure
@@ -146,6 +146,23 @@ One false positive was confirmed and subsequently fixed: `broken-images` no
 longer treats Catbird's empty lazy image placeholders as shopper-visible broken
 images. No false negative was found. Local regression coverage now preserves
 both the placeholder case and detection of a real broken image.
+
+### Structured-data refinement — 2026-08-21
+
+The refined `structured-product-data` rule was manually rechecked on AETHER,
+Landyachtz and Catbird. All three are final TN results: AETHER and Landyachtz
+each expose one complete typed `Offer`; Catbird exposes 19 complete variant
+offers under a `ProductGroup`. Catbird initially revealed a parser FN because
+its valid offers use the absolute `http://schema.org/Offer` type. The generic
+Schema.org type normalization is covered by
+`structured-product-data/regression/relevant-product-across-json-ld-blocks`;
+no storefront-specific branch was added.
+
+Google documents `availability` as recommended rather than required for the
+supported Offer scenarios, so a priced Offer with `priceCurrency` but without
+availability remains PASS with informational evidence. `AggregateOffer` is
+accepted only with `lowPrice` and `priceCurrency`; it is not used to represent
+ProductGroup variants.
 
 ## Readiness failure mode — Gold Apple preloader
 
@@ -172,6 +189,14 @@ against it. The permanent-loader fixture returns only a critical
 other eight rules are skipped. An immediately ready fixture uses the same 750
 ms stability target as the previous fixed wait. A post-fix live Gold Apple
 recheck remains manual calibration work; no live site was added to CI.
+
+The original Gold Apple response also provided a confirmed structural example:
+its observed JSON-LD contained `OfferShippingDetails` but no applicable Product
+offer. Because that run was captured during the incomplete preloader state, it
+is not classified as an independent live structured-data defect. The local case
+`structured-product-data/regression/offer-shipping-details-without-product-offer`
+preserves only the deterministic boundary: shipping metadata must not satisfy a
+Product offer. The parser contains no Gold Apple-specific condition.
 
 ### Full-page capture limitation
 

@@ -33,7 +33,9 @@ describe("audit readiness", () => {
           name: "Silk Shirt",
           image: "https://example.com/shirt.jpg",
           offers: {
+            "@type": "Offer",
             price: "129",
+            priceCurrency: "USD",
             availability: "https://schema.org/InStock",
           },
         });

@@ -69,7 +69,8 @@ AI может помогать группировать или объяснят�
 - [x] Есть исполнимый benchmark с локальным manifest, positive/negative
       controls для девяти правил, 13 именованными purchase CTA regressions,
       regressions для lazy image placeholder, robots indexing directives и
-      permanent loader execution state и командой `pnpm benchmark`.
+      permanent loader execution state, а также Product/Offer JSON-LD
+      semantics и командой `pnpm benchmark`.
 - [x] Есть один GitHub Actions workflow для clean-checkout verification:
       lint, typecheck, browser tests, benchmark и production build.
 - [x] Поддерживаемое окружение и официальный clean-checkout workflow
@@ -343,9 +344,10 @@ recommendation, benchmark cases и calibration evidence. Critical использ
 - [ ] Добавить hreflang check после multi-locale calibration. **Priority:**
       Medium. **Impact:** полезен международным storefronts, но требует
       аккуратной проверки reciprocal locale mappings.
-- [ ] Уточнить текущую JSON-LD проверку для price, currency и availability.
-      **Priority:** High. **Impact:** сейчас combined finding не выделяет эти
-      важные ecommerce defects.
+- [x] Уточнить текущую JSON-LD проверку для price, currency и availability.
+      **Priority:** High. **Impact:** finding различает отсутствие Product
+      offer, price и priceCurrency, поддерживает ProductGroup variants и не
+      превращает рекомендованную availability в warning.
 - [ ] Добавить alt text и lazy-load readiness для product image, используя
       existing image snapshot. **Priority:** Medium. **Impact:** даёт coverage
       accessibility и image delivery без нового browser flow.
@@ -626,13 +628,12 @@ Metrics measure product trust and customer value, not raw scan volume.
 
 # Current Focus
 
-**Уточнить существующий `structured-product-data` finding для
-`priceCurrency` и `availability`, сохранив deterministic Product/ProductGroup
-semantics.**
+**Добавить deterministic alt text check для уже выбранного primary product
+image, используя existing image snapshot и не смешивая его с общей lazy-load
+readiness.**
 
-Deterministic readiness gate завершён: delayed PDP дожидается stable auditable
-state, permanent loader возвращает один incomplete `page-availability` outcome,
-а обычные rules не создают cascade warnings по preloader. Следующая задача
-остаётся в High-confidence PDP Coverage и должна сначала зафиксировать
-корректные Product, ProductGroup и Offer варианты, не добавляя новое правило
-автоматически.
+`structured-product-data` теперь различает typed Offer, AggregateOffer и
+OfferShippingDetails, требует priceCurrency для поддерживаемой цены и оставляет
+рекомендованную availability информационным PASS. ProductGroup variants,
+несколько JSON-LD blocks и multiple Offers закреплены benchmark regressions.
+Readiness/mobile loader work остаётся закрытым и не входит в следующий focus.

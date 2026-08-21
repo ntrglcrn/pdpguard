@@ -7,7 +7,11 @@ export interface ProductStructuredData {
   name: boolean;
   image: boolean;
   offers: boolean;
+  applicableOfferCount: number;
+  completeOfferCount: number;
+  completeOfferType: "Offer" | "AggregateOffer" | null;
   price: boolean;
+  priceCurrency: boolean;
   availability: boolean;
   availabilityValues: string[];
   priceValues: string[];
@@ -30,11 +34,14 @@ function walk(value: unknown, output: JsonRecord[]): void {
 
 function typesOf(record: JsonRecord): string[] {
   const value = record["@type"];
-  return Array.isArray(value)
+  const values = Array.isArray(value)
     ? value.filter((item): item is string => typeof item === "string")
     : typeof value === "string"
       ? [value]
       : [];
+  return values.map(
+    (type) => type.match(/^https?:\/\/schema\.org\/([^/?#]+)$/i)?.[1] ?? type,
+  );
 }
 
 function valuesOf(value: unknown): JsonRecord[] {
@@ -42,45 +49,104 @@ function valuesOf(value: unknown): JsonRecord[] {
   return isRecord(value) ? [value] : [];
 }
 
-function collectOfferData(record: JsonRecord) {
-  const offers = valuesOf(record.offers);
+function hasValue(value: unknown) {
+  return value !== undefined && value !== null && value !== "";
+}
+
+function hasText(value: unknown) {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function hasImage(value: unknown) {
+  return (
+    typeof value === "string" ||
+    (Array.isArray(value) && value.length > 0) ||
+    isRecord(value)
+  );
+}
+
+function collectOfferData(
+  record: JsonRecord,
+  type: "Product" | "ProductGroup",
+) {
+  const variantOffers =
+    type === "ProductGroup"
+      ? valuesOf(record.hasVariant)
+          .filter(
+            (variant) =>
+              typesOf(variant).includes("Product") &&
+              hasText(variant.name) &&
+              hasImage(variant.image),
+          )
+          .flatMap((variant) => valuesOf(variant.offers))
+      : [];
+  const offers = [...valuesOf(record.offers), ...variantOffers]
+    .map((offer) => {
+      const offerType = typesOf(offer).find(
+        (candidate): candidate is "Offer" | "AggregateOffer" =>
+          candidate === "Offer" || candidate === "AggregateOffer",
+      );
+      if (!offerType) return null;
+
+      if (offerType === "AggregateOffer") {
+        return {
+          type: offerType,
+          price: hasValue(offer.lowPrice),
+          priceCurrency: hasText(offer.priceCurrency),
+          priceValue: hasValue(offer.lowPrice) ? String(offer.lowPrice) : null,
+          availability: false,
+          availabilityValue: null,
+        };
+      }
+
+      const directPrice = hasValue(offer.price);
+      const specifications = valuesOf(offer.priceSpecification);
+      const pricedSpecification = specifications.find((specification) =>
+        hasValue(specification.price),
+      );
+      const completeSpecification = specifications.find(
+        (specification) =>
+          hasValue(specification.price) && hasText(specification.priceCurrency),
+      );
+      const price = directPrice || Boolean(pricedSpecification);
+      const priceCurrency = directPrice
+        ? hasText(offer.priceCurrency)
+        : Boolean(completeSpecification);
+      const priceValue = directPrice
+        ? String(offer.price)
+        : pricedSpecification
+          ? String(pricedSpecification.price)
+          : null;
+
+      return {
+        type: offerType,
+        price,
+        priceCurrency,
+        priceValue,
+        availability: hasValue(offer.availability),
+        availabilityValue: hasValue(offer.availability)
+          ? String(offer.availability)
+          : null,
+      };
+    })
+    .filter((offer) => offer !== null);
   const priceValues: string[] = [];
-  let hasPrice = false;
-  let hasAvailability = false;
   const availabilityValues: string[] = [];
 
   for (const offer of offers) {
-    if (
-      offer.price !== undefined &&
-      offer.price !== null &&
-      offer.price !== ""
-    ) {
-      hasPrice = true;
-      priceValues.push(String(offer.price));
-    }
-    if (offer.availability !== undefined) {
-      hasAvailability = true;
-      availabilityValues.push(String(offer.availability));
-    }
-
-    for (const specification of valuesOf(offer.priceSpecification)) {
-      if (
-        specification.price !== undefined &&
-        specification.price !== null &&
-        specification.price !== ""
-      ) {
-        hasPrice = true;
-        priceValues.push(String(specification.price));
-      }
-    }
+    if (offer.priceValue !== null) priceValues.push(offer.priceValue);
+    if (offer.availabilityValue !== null)
+      availabilityValues.push(offer.availabilityValue);
   }
+  const completeOffers = offers.filter(
+    (offer) => offer.price && offer.priceCurrency,
+  );
 
   return {
     offers,
     priceValues,
     availabilityValues,
-    hasPrice,
-    hasAvailability,
+    completeOffers,
   };
 }
 
@@ -107,23 +173,31 @@ export function parseProductJsonLd(scripts: string[]): ProductStructuredData[] {
       );
       if (!type) continue;
 
-      const {
-        offers,
-        priceValues,
-        availabilityValues,
-        hasPrice,
-        hasAvailability,
-      } = collectOfferData(record);
+      const { offers, completeOffers, priceValues, availabilityValues } =
+        collectOfferData(record, type);
+      const variants =
+        type === "ProductGroup"
+          ? valuesOf(record.hasVariant).filter((variant) =>
+              typesOf(variant).includes("Product"),
+            )
+          : [];
       products.push({
         type,
         name: typeof record.name === "string" && record.name.trim().length > 0,
         image:
-          typeof record.image === "string" ||
-          (Array.isArray(record.image) && record.image.length > 0) ||
-          isRecord(record.image),
+          hasImage(record.image) ||
+          variants.some(
+            (variant) => hasText(variant.name) && hasImage(variant.image),
+          ),
         offers: offers.length > 0,
-        price: hasPrice,
-        availability: hasAvailability,
+        applicableOfferCount: offers.length,
+        completeOfferCount: completeOffers.length,
+        completeOfferType: completeOffers[0]?.type ?? null,
+        price: offers.some((offer) => offer.price),
+        priceCurrency: completeOffers.length > 0,
+        availability: completeOffers.some(
+          (offer) => offer.type === "Offer" && offer.availability,
+        ),
         availabilityValues,
         priceValues,
       });

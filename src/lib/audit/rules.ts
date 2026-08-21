@@ -665,34 +665,97 @@ export const structuredProductDataRule: AuditRule = async ({ page }) => {
   const products = parseProductJsonLd(scripts);
   const complete = products.find(
     (product) =>
-      product.name && product.image && product.offers && product.price,
+      product.name && product.image && product.completeOfferCount > 0,
   );
+  const candidate =
+    complete ??
+    products
+      .map((product, index) => ({
+        product,
+        index,
+        score:
+          Number(product.name) +
+          Number(product.image) +
+          Number(product.offers) +
+          Number(product.price) +
+          Number(product.priceCurrency),
+      }))
+      .sort(
+        (left, right) => right.score - left.score || left.index - right.index,
+      )[0]?.product;
+  const issue = !candidate
+    ? "no-product"
+    : !candidate.name
+      ? "missing-name"
+      : !candidate.image
+        ? "missing-image"
+        : !candidate.offers
+          ? "no-offer"
+          : !candidate.price
+            ? "missing-price"
+            : !candidate.priceCurrency
+              ? "missing-price-currency"
+              : null;
   const passed = Boolean(complete);
+  const description = complete
+    ? `A ${complete.type} JSON-LD record has a supported offer with price and priceCurrency.`
+    : issue === "no-product"
+      ? "No Product or ProductGroup JSON-LD node was found."
+      : issue === "missing-name"
+        ? `${candidate?.type} JSON-LD is missing a product name.`
+        : issue === "missing-image"
+          ? `${candidate?.type} JSON-LD is missing a product image.`
+          : issue === "no-offer"
+            ? `${candidate?.type} JSON-LD has no applicable Offer or AggregateOffer.`
+            : issue === "missing-price"
+              ? `${candidate?.type} JSON-LD has no supported offer price.`
+              : `${candidate?.type} JSON-LD has an offer price without priceCurrency.`;
+  const evidence = complete
+    ? [
+        `${complete.type} has ${complete.applicableOfferCount} applicable offer${complete.applicableOfferCount === 1 ? "" : "s"}; ${complete.completeOfferCount} ${complete.completeOfferCount === 1 ? "provides" : "provide"} a complete price and currency pair.`,
+        complete.completeOfferType === "AggregateOffer"
+          ? "The AggregateOffer provides lowPrice and priceCurrency; availability is not required for this scenario."
+          : complete.availability
+            ? "At least one complete Offer also provides availability."
+            : "The complete Offer omits Google-recommended availability; this does not fail the rule.",
+      ]
+    : issue === "no-product"
+      ? ["No parseable Product or ProductGroup JSON-LD node was found."]
+      : issue === "missing-name"
+        ? [`The selected ${candidate?.type} candidate has no non-empty name.`]
+        : issue === "missing-image"
+          ? [`The selected ${candidate?.type} candidate has no product image.`]
+          : issue === "no-offer"
+            ? [
+                `The selected ${candidate?.type} candidate has no typed Offer or AggregateOffer; OfferShippingDetails is not a product offer.`,
+              ]
+            : issue === "missing-price"
+              ? [
+                  `${candidate?.applicableOfferCount} applicable offer${candidate?.applicableOfferCount === 1 ? "" : "s"} found, but none provides Offer.price, priceSpecification.price, or AggregateOffer.lowPrice.`,
+                ]
+              : [
+                  `${candidate?.applicableOfferCount} applicable offer${candidate?.applicableOfferCount === 1 ? "" : "s"} has a price, but no price and priceCurrency pair is complete at the applicable level.`,
+                ];
 
   return finding({
     id: "structured-product-data",
     ruleId: "structured-product-data",
     title: "Structured product data",
-    description: passed
-      ? `A complete ${complete?.type} JSON-LD record was found.`
-      : "Complete Product or ProductGroup JSON-LD was not found.",
+    description,
     severity: passed ? "info" : "warning",
     status: passed ? "passed" : "failed",
-    evidence: complete
-      ? [
-          "The record includes name, image, offers and a price or priceSpecification.",
-          complete.availability
-            ? "Offer availability is present."
-            : "Offer availability is not present (optional for this check).",
-        ]
-      : products.length === 0
-        ? ["No parseable Product or ProductGroup JSON-LD record was found."]
-        : [
-            "A product record exists but is missing name, image, offers or price.",
-          ],
+    evidence,
     recommendation: passed
-      ? "No action is required."
-      : "Add or repair Product JSON-LD with name, image and priced offers.",
+      ? complete?.completeOfferType === "Offer" && !complete.availability
+        ? "Consider adding availability to the same Offer as its active price and priceCurrency."
+        : "No action is required."
+      : issue === "missing-price-currency"
+        ? "Add a three-letter priceCurrency beside the active Offer price, or inside the same priceSpecification."
+        : issue === "missing-price"
+          ? "Add the active price to a typed Offer, its priceSpecification, or AggregateOffer.lowPrice."
+          : issue === "no-offer"
+            ? "Nest a typed Offer or AggregateOffer under the relevant Product, or typed Offers under ProductGroup variants."
+            : `Add or repair the missing ${issue === "missing-name" ? "name" : issue === "missing-image" ? "image" : "Product"} structured data.`,
   });
 };
 

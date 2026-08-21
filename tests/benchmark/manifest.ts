@@ -8,7 +8,7 @@ const productImage = `
 const productJsonLd = `
   <script type="application/ld+json">{
     "@type":"Product","name":"Silk Shirt","image":"https://example.com/shirt.jpg",
-    "offers":{"price":"129","availability":"https://schema.org/InStock"}
+    "offers":{"@type":"Offer","price":"129","priceCurrency":"USD","availability":"https://schema.org/InStock"}
   }</script>
 `;
 
@@ -131,6 +131,105 @@ export const benchmarkCases = [
     control: "positive",
     html: "<main><h1>Silk Shirt</h1><p>$129.00</p></main>",
     expected: { ruleId: "structured-product-data", status: "failed" },
+  },
+  {
+    name: "structured-product-data/regression/priced-offer-missing-price-currency",
+    control: "regression",
+    html: `<script type="application/ld+json">{
+      "@type":"Product","name":"Serum","image":"https://example.com/serum.jpg",
+      "offers":{"@type":"Offer","price":29,"availability":"https://schema.org/InStock"}
+    }</script>`,
+    expected: {
+      ruleId: "structured-product-data",
+      status: "failed",
+      evidenceIncludes: "price and priceCurrency pair",
+    },
+  },
+  {
+    name: "structured-product-data/regression/recommended-availability-missing",
+    control: "regression",
+    html: `<script type="application/ld+json">{
+      "@type":"Product","name":"Serum","image":"https://example.com/serum.jpg",
+      "offers":{"@type":"Offer","price":29,"priceCurrency":"USD"}
+    }</script>`,
+    expected: {
+      ruleId: "structured-product-data",
+      status: "passed",
+      evidenceIncludes: "Google-recommended availability",
+    },
+  },
+  {
+    name: "structured-product-data/regression/product-group-variant-offers",
+    control: "regression",
+    html: `<script type="application/ld+json">{
+      "@type":"ProductGroup","name":"Lip color","hasVariant":[{
+        "@type":"Product","name":"Lip color - Red","image":"https://example.com/red.jpg",
+        "offers":{"@type":"Offer","price":42,"priceCurrency":"USD","availability":"https://schema.org/InStock"}
+      }]
+    }</script>`,
+    expected: {
+      ruleId: "structured-product-data",
+      status: "passed",
+      evidenceIncludes: "ProductGroup",
+    },
+  },
+  {
+    name: "structured-product-data/regression/offer-shipping-details-without-product-offer",
+    control: "regression",
+    html: `
+      <script type="application/ld+json">{
+        "@type":"Product","name":"Serum","image":"https://example.com/serum.jpg"
+      }</script>
+      <script type="application/ld+json">{
+        "@type":"OfferShippingDetails","shippingRate":{"value":5,"currency":"USD"}
+      }</script>
+    `,
+    expected: {
+      ruleId: "structured-product-data",
+      status: "failed",
+      evidenceIncludes: "OfferShippingDetails is not a product offer",
+    },
+  },
+  {
+    name: "structured-product-data/regression/relevant-product-across-json-ld-blocks",
+    control: "regression",
+    html: `
+      <script type="application/ld+json">{"@type":"Organization","name":"Shop"}</script>
+      <script type="application/ld+json">{
+        "@type":"Product","name":"Serum","image":"https://example.com/serum.jpg",
+        "offers":{"@type":"http://schema.org/Offer","price":29,"priceCurrency":"EUR","availability":"https://schema.org/InStock"}
+      }</script>
+    `,
+    expected: { ruleId: "structured-product-data", status: "passed" },
+  },
+  {
+    name: "structured-product-data/regression/complete-offer-among-multiple-offers",
+    control: "regression",
+    html: `<script type="application/ld+json">{
+      "@type":"Product","name":"Serum","image":"https://example.com/serum.jpg",
+      "offers":[
+        {"@type":"Offer","price":25},
+        {"@type":"Offer","price":29,"priceCurrency":"USD","availability":"https://schema.org/InStock"}
+      ]
+    }</script>`,
+    expected: {
+      ruleId: "structured-product-data",
+      status: "passed",
+      evidenceIncludes: "2 applicable offers; 1 provides",
+    },
+  },
+  {
+    name: "structured-product-data/regression/aggregate-offer-low-price",
+    control: "regression",
+    html: `<script type="application/ld+json">{
+      "@type":"Product","name":"Serum","image":"https://example.com/serum.jpg",
+      "offers":{"@type":"AggregateOffer","lowPrice":29,"highPrice":39,"priceCurrency":"USD"}
+    }</script>`,
+    expected: {
+      ruleId: "structured-product-data",
+      status: "passed",
+      evidenceIncludes: "AggregateOffer provides lowPrice and priceCurrency",
+    },
   },
   {
     name: "purchase-cta/regression/add-to-basket-label",
@@ -262,7 +361,7 @@ export const benchmarkCases = [
     name: "purchase-cta/regression/sold-out-json-ld-availability",
     control: "regression",
     html: `
-      <script type="application/ld+json">{"@type":"Product","offers":{"availability":"https://schema.org/OutOfStock"}}</script>
+      <script type="application/ld+json">{"@type":"Product","offers":{"@type":"Offer","availability":"https://schema.org/OutOfStock"}}</script>
       <main><button disabled>Add to cart</button></main>
     `,
     expected: {
