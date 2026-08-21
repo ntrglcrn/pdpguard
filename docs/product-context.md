@@ -18,9 +18,9 @@ PDP Guard translates technical checks into plain ecommerce findings: what failed
 
 ## Current scope
 
-Stage 1 audits one user-provided public PDP per run in a mobile browser. It checks page availability, title, product imagery, broken images, visible price, purchase CTA, and Product/ProductGroup JSON-LD, then returns a screenshot and report.
+Stage 1 audits one user-provided public PDP per run in a mobile browser. It checks page availability, title, product imagery, broken images, visible price, purchase CTA, and Product/ProductGroup JSON-LD, then returns a screenshot and report. The first Stage 2 slice can preview a bounded list of page URLs from a public XML sitemap.
 
-The current implementation has no accounts, persistence, catalog discovery, checkout interaction, third-party integrations, or AI.
+The current implementation has no accounts, persistence, batch audits, checkout interaction, third-party integrations, or AI.
 
 ## Product constraints
 

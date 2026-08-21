@@ -4,6 +4,15 @@
 
 Sitemap discovery, batch PDP checks, background jobs, PostgreSQL history, result comparison, schedules, concurrency controls, retries, and cancellation.
 
+Current slice: bounded XML sitemap and sitemap-index discovery is available as
+a local preview. It follows validated redirects and child sitemaps, reads at
+most 10 sitemap files / 5 MB, and returns at most 200 page URLs from origins
+that supplied a validated sitemap. It does not start audits automatically.
+
+Next: calibrate discovery against real store sitemaps, then add a small bounded
+batch audit. Background jobs and persistence wait until synchronous batches
+prove useful and their resource limits are understood.
+
 ## Stage 3 — Ecommerce interaction testing
 
 Variant selection, availability behavior, add-to-cart, cart drawer state, PDP/cart price consistency, and platform-specific adapters.

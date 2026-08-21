@@ -160,6 +160,7 @@ a {
 }
 
 .audit-panel,
+.catalog-panel,
 .result-header,
 .findings-panel,
 .screenshot-panel {
@@ -169,6 +170,10 @@ a {
   box-shadow: var(--shadow);
 }
 .audit-panel {
+  padding: clamp(1.25rem, 3vw, 2rem);
+}
+.catalog-panel {
+  margin-top: 1rem;
   padding: clamp(1.25rem, 3vw, 2rem);
 }
 .panel-heading {
@@ -296,6 +301,44 @@ input:disabled {
   margin-top: 1.25rem;
   border-radius: 14px;
   padding: 14px 16px;
+}
+
+.catalog-result {
+  margin-top: 1.25rem;
+  border-top: 1px solid var(--border);
+  padding-top: 1.25rem;
+}
+.catalog-summary {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.catalog-summary span,
+.catalog-note {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+.catalog-note {
+  margin: 8px 0 0;
+}
+.catalog-list {
+  max-height: 320px;
+  overflow: auto;
+  margin: 1rem 0 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-subtle);
+  padding: 8px 8px 8px 2.75rem;
+}
+.catalog-list li {
+  padding: 6px 8px;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+.catalog-list a {
+  overflow-wrap: anywhere;
+  color: var(--accent);
 }
 .scan-state {
   background: var(--accent-soft);
