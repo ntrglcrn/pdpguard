@@ -238,9 +238,8 @@ async function imageSnapshots(
   );
 }
 
-export const productImageRule: AuditRule = async (context) => {
-  const images = await imageSnapshots(context);
-  const candidate = images
+function primaryProductImage(images: ImageSnapshot[]) {
+  return images
     .filter(
       (image) =>
         image.visible &&
@@ -254,6 +253,11 @@ export const productImageRule: AuditRule = async (context) => {
     .sort(
       (left, right) => right.width * right.height - left.width * left.height,
     )[0];
+}
+
+export const productImageRule: AuditRule = async (context) => {
+  const images = await imageSnapshots(context);
+  const candidate = primaryProductImage(images);
 
   return finding({
     id: "product-image",
@@ -277,6 +281,35 @@ export const productImageRule: AuditRule = async (context) => {
     recommendation: candidate
       ? "No action is required."
       : "Ensure the primary product image loads at a prominent mobile size.",
+  });
+};
+
+export const productImageAltTextRule: AuditRule = async (context) => {
+  const candidate = primaryProductImage(await imageSnapshots(context));
+  const passed = !candidate || candidate.alt.trim().length > 0;
+
+  return finding({
+    id: "product-image-alt-text",
+    ruleId: "product-image-alt-text",
+    title: "Product image alt text",
+    description: passed
+      ? candidate
+        ? "The primary product image has alt text."
+        : "No primary product image was available to assess."
+      : "The primary product image has empty alt text.",
+    severity: passed ? "info" : "warning",
+    status: passed ? "passed" : "failed",
+    evidence: candidate
+      ? [
+          `Primary image rendered size: ${candidate.width} × ${candidate.height}px.`,
+          candidate.alt.trim()
+            ? `Alt text: ${candidate.alt}`
+            : "The primary image alt attribute is empty.",
+        ]
+      : ["No primary product image candidate was found."],
+    recommendation: passed
+      ? "No action is required."
+      : "Add concise, product-specific alt text to the primary product image.",
   });
 };
 
@@ -702,6 +735,7 @@ export const auditRules: AuditRule[] = [
   canonicalUrlRule,
   robotsIndexingRule,
   productImageRule,
+  productImageAltTextRule,
   brokenImagesRule,
   productPriceRule,
   purchaseCtaRule,

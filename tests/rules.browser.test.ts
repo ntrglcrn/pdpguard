@@ -355,4 +355,27 @@ describe("browser audit rules", () => {
       findings.find((item) => item.ruleId === "broken-images"),
     ).toMatchObject({ status: "failed" });
   });
+
+  it("reports empty alt text only for the selected primary product image", async () => {
+    await page.setContent(`
+      <main>
+        <img alt="" width="500" height="600"
+          src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='500' height='600'%3E%3Crect width='500' height='600' fill='%23333'/%3E%3C/svg%3E">
+        <img alt="Related product" width="200" height="200"
+          src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Crect width='200' height='200' fill='%23333'/%3E%3C/svg%3E">
+      </main>
+    `);
+    await page.locator("img").evaluateAll(async (images) => {
+      await Promise.all(
+        images.map((image) => (image as HTMLImageElement).decode()),
+      );
+    });
+    const finding = (await runAuditRules({ page, mainResponse: null })).find(
+      (item) => item.ruleId === "product-image-alt-text",
+    );
+    expect(finding).toMatchObject({ status: "failed", severity: "warning" });
+    expect(finding?.evidence).toContain(
+      "The primary image alt attribute is empty.",
+    );
+  });
 });

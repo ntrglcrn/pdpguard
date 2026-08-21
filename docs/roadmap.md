@@ -346,9 +346,12 @@ recommendation, benchmark cases и calibration evidence. Critical использ
 - [ ] Уточнить текущую JSON-LD проверку для price, currency и availability.
       **Priority:** High. **Impact:** сейчас combined finding не выделяет эти
       важные ecommerce defects.
-- [ ] Добавить alt text и lazy-load readiness для product image, используя
-      existing image snapshot. **Priority:** Medium. **Impact:** даёт coverage
-      accessibility и image delivery без нового browser flow.
+- [x] Добавить deterministic alt text check для выбранного primary product
+      image, используя existing image snapshot. **Priority:** Medium. **Impact:**
+      даёт accessibility coverage без нового browser flow.
+- [ ] Добавить lazy-load readiness для product image после отдельной
+      calibration. **Priority:** Medium. **Impact:** расширяет image delivery
+      coverage без смешения с alt text check.
 - [ ] Добавлять breadcrumbs, reviews и variant-state checks только после
       реальных примеров с устойчивой семантикой. **Priority:** Medium. **Impact:**
       полезны, но сильно зависят от storefront implementation.
@@ -626,13 +629,6 @@ Metrics measure product trust and customer value, not raw scan volume.
 
 # Current Focus
 
-**Уточнить существующий `structured-product-data` finding для
-`priceCurrency` и `availability`, сохранив deterministic Product/ProductGroup
-semantics.**
-
-Deterministic readiness gate завершён: delayed PDP дожидается stable auditable
-state, permanent loader возвращает один incomplete `page-availability` outcome,
-а обычные rules не создают cascade warnings по preloader. Следующая задача
-остаётся в High-confidence PDP Coverage и должна сначала зафиксировать
-корректные Product, ProductGroup и Offer варианты, не добавляя новое правило
-автоматически.
+**Deterministic alt text check для уже выбранного primary product image
+завершён: он использует existing image snapshot и не смешивается с общей
+lazy-load readiness. Следующий Engine Current Focus не выбран.**

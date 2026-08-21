@@ -51,7 +51,7 @@ describe("audit readiness", () => {
       { timeoutMs: 2_000, stabilityMs: 200 },
     );
 
-    expect(findings).toHaveLength(9);
+    expect(findings).toHaveLength(10);
     expect(findings.filter((finding) => finding.status === "failed")).toEqual(
       [],
     );
