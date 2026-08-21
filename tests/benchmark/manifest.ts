@@ -25,10 +25,12 @@ export const benchmarkRuleIds = [
   "page-title",
   "canonical-url",
   "robots-indexing",
+  "share-url-integrity",
   "product-image",
   "product-image-alt-text",
   "broken-images",
   "product-price",
+  "variant-label-integrity",
   "purchase-cta",
   "structured-product-data",
 ] as const;
@@ -98,6 +100,47 @@ export const benchmarkCases = [
     },
   },
   {
+    name: "share-url-integrity/positive-control/undefined-query-value",
+    control: "positive",
+    html: '<main><a aria-label="Share on X" href="https://x.com/intent/post?url=undefined">Share</a></main>',
+    expected: { ruleId: "share-url-integrity", status: "failed" },
+  },
+  {
+    name: "share-url-integrity/regression/null-path-segment",
+    control: "regression",
+    html: '<main><a href="https://www.facebook.com/sharer/sharer.php?u=https://shop.example/products/null">Facebook</a></main>',
+    expected: { ruleId: "share-url-integrity", status: "failed" },
+  },
+  {
+    name: "share-url-integrity/regression/unresolved-encoded-segment",
+    control: "regression",
+    html: '<main><a data-share href="https://www.linkedin.com/sharing/share-offsite/?url=https%3A%2F%2Fshop.example%2Fproducts%2F%5Bhandle%5D">LinkedIn</a></main>',
+    expected: { ruleId: "share-url-integrity", status: "failed" },
+  },
+  {
+    name: "share-url-integrity/negative-control/resolved-product-url",
+    control: "negative",
+    html: '<main><a aria-label="Share on X" href="https://x.com/intent/post?url=https%3A%2F%2Fshop.example%2Fproducts%2Fsilk-shirt">Share</a></main>',
+    expected: { ruleId: "share-url-integrity", status: "passed" },
+  },
+  {
+    name: "share-url-integrity/regression/hidden-placeholder-clone",
+    control: "regression",
+    html: `
+      <main>
+        <a aria-label="Share on X" href="https://x.com/intent/post?url=https://shop.example/products/shirt">Share</a>
+        <a hidden aria-label="Share on X" href="https://x.com/intent/post?url=undefined">Share</a>
+      </main>
+    `,
+    expected: { ruleId: "share-url-integrity", status: "passed" },
+  },
+  {
+    name: "share-url-integrity/regression/click-share-is-out-of-scope",
+    control: "regression",
+    html: '<main><button aria-label="Share product">Share</button></main>',
+    expected: { ruleId: "share-url-integrity", status: "passed" },
+  },
+  {
     name: "product-image/positive-control/missing-product-image",
     control: "positive",
     html: "<main><h1>Silk Shirt</h1><p>$129.00</p></main>",
@@ -145,6 +188,85 @@ export const benchmarkCases = [
       status: "passed",
       evidenceIncludes: "Free",
     },
+  },
+  {
+    name: "variant-label-integrity/positive-control/duplicate-within-group",
+    control: "positive",
+    html: `
+      <main><fieldset><legend>Size</legend>
+        <label><input type="radio" name="size" value="m-1">M</label>
+        <label><input type="radio" name="size" value="m-2">M</label>
+      </fieldset></main>
+    `,
+    expected: {
+      ruleId: "variant-label-integrity",
+      status: "failed",
+      evidenceIncludes: "repeats label “M” 2 times",
+    },
+  },
+  {
+    name: "variant-label-integrity/negative-control/unique-within-group",
+    control: "negative",
+    html: `
+      <main><fieldset><legend>Size</legend>
+        <label><input type="radio" name="size" value="s">S</label>
+        <label><input type="radio" name="size" value="m">M</label>
+      </fieldset></main>
+    `,
+    expected: { ruleId: "variant-label-integrity", status: "passed" },
+  },
+  {
+    name: "variant-label-integrity/regression/same-label-across-groups",
+    control: "regression",
+    html: `
+      <main>
+        <fieldset><legend>Size</legend>
+          <label><input type="radio" name="size" value="one">One size</label>
+          <label><input type="radio" name="size" value="large">Large</label>
+        </fieldset>
+        <fieldset><legend>Pack</legend>
+          <label><input type="radio" name="pack" value="one">One size</label>
+          <label><input type="radio" name="pack" value="double">Double</label>
+        </fieldset>
+      </main>
+    `,
+    expected: { ruleId: "variant-label-integrity", status: "passed" },
+  },
+  {
+    name: "variant-label-integrity/regression/hidden-responsive-clone",
+    control: "regression",
+    html: `
+      <main><fieldset><legend>Size</legend>
+        <label><input type="radio" name="size" value="s">S</label>
+        <label><input type="radio" name="size" value="m">M</label>
+        <div style="display:none">
+          <label><input type="radio" name="size-clone" value="s">S</label>
+        </div>
+      </fieldset></main>
+    `,
+    expected: { ruleId: "variant-label-integrity", status: "passed" },
+  },
+  {
+    name: "variant-label-integrity/regression/duplicate-select-options",
+    control: "regression",
+    html: `
+      <main><select aria-label="Color">
+        <option>Black</option><option>Black</option>
+      </select></main>
+    `,
+    expected: { ruleId: "variant-label-integrity", status: "failed" },
+  },
+  {
+    name: "variant-label-integrity/regression/size-order-is-out-of-scope",
+    control: "regression",
+    html: `
+      <main><fieldset><legend>Size</legend>
+        <label><input type="radio" name="size" value="xl">XL</label>
+        <label><input type="radio" name="size" value="s">S</label>
+        <label><input type="radio" name="size" value="m">M</label>
+      </fieldset></main>
+    `,
+    expected: { ruleId: "variant-label-integrity", status: "passed" },
   },
   {
     name: "purchase-cta/positive-control/disabled-cta",

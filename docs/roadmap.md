@@ -58,17 +58,17 @@ AI может помогать группировать или объяснят�
       `domcontentloaded` ждёт bounded structural readiness перед rules.
 - [x] URL проходят DNS-проверку: локальные, private, reserved и URL с
       credentials отклоняются до навигации и при запросах страницы.
-- [x] Есть типизированные `Finding`, summary и десять независимых правил:
+- [x] Есть типизированные `Finding`, summary и двенадцать независимых правил:
       availability, title, canonical URL, robots indexing, product image, broken
-      images, product image alt text, visible price, purchase CTA и
-      Product/ProductGroup JSON-LD.
+      images, product image alt text, visible price, variant label integrity,
+      share URL integrity, purchase CTA и Product/ProductGroup JSON-LD.
 - [x] Есть unit-тесты URL safety, summary, price/CTA matching и JSON-LD, а
       также browser fixtures для текущих эвристик и delayed/permanent/immediate
       readiness states. В `docs/calibration.md` есть ручная калибровка 25 live
       URL (23 включены, два anti-bot случая исключены).
 - [x] Скриншоты временно хранятся локально до 24 часов.
 - [x] Есть исполнимый benchmark с локальным manifest, positive/negative
-      controls для десяти правил, 13 именованными purchase CTA regressions,
+      controls для двенадцати правил, 13 именованными purchase CTA regressions,
       regressions для lazy image placeholder, robots indexing directives и
       permanent loader execution state и командой `pnpm benchmark`.
 - [x] Есть один GitHub Actions workflow для clean-checkout verification:
@@ -353,6 +353,14 @@ recommendation, benchmark cases и calibration evidence. Critical использ
 - [x] Усилить visible product price для `undefined`, `NaN` и zero, сохранив
       legitimate `Free`. **Priority:** High. **Impact:** invalid storefront
       values не проходят как наблюдаемая цена.
+- [x] Добавить deterministic variant-label integrity check: дубли ищутся
+      только внутри одной видимой semantic-группы, hidden responsive clones
+      игнорируются. **Priority:** High. **Impact:** shopper не видит два
+      неразличимых variant choices.
+- [x] Добавить static share URL integrity check для `undefined`, `null` и
+      unresolved path/template segments. **Priority:** High. **Impact:** явные
+      placeholder URLs не доходят до shopper; click-flow остаётся отдельным
+      future scenario.
 - [ ] Добавить lazy-load readiness для product image после отдельной
       calibration. **Priority:** Medium. **Impact:** расширяет image delivery
       coverage без смешения с alt text check.
@@ -633,6 +641,6 @@ Metrics measure product trust and customer value, not raw scan volume.
 
 # Current Focus
 
-**FR-2 завершён: `product-price` отклоняет `undefined`, `NaN` и zero, сохраняет
-legitimate `Free` и закреплён positive/negative benchmark controls. Следующий
-Engine Current Focus не выбран.**
+**FR-5 завершён в статической части: `share-url-integrity` выявляет `undefined`,
+`null` и unresolved segments в видимых share anchors. Click-flow и scenario
+engine намеренно не добавлены. Следующий Engine Current Focus не выбран.**
