@@ -19,6 +19,7 @@ describe("browser audit rules", () => {
   it("passes a complete local PDP fixture and produces a screenshot", async () => {
     await page.setContent(`
       <!doctype html><html><head><title>Silk Shirt</title>
+      <link rel="canonical" href="https://example.com/products/silk-shirt">
       <script type="application/ld+json">{
         "@type":"Product","name":"Silk Shirt","image":"https://example.com/shirt.jpg",
         "offers":{"price":"129","availability":"https://schema.org/InStock"}
@@ -37,6 +38,107 @@ describe("browser audit rules", () => {
     expect(
       (await page.screenshot({ fullPage: true })).byteLength,
     ).toBeGreaterThan(1_000);
+  });
+
+  it("passes one relative canonical URL", async () => {
+    await page.setContent(`
+      <head><base href="https://shop.example/products/"><link rel="canonical" href="silk-shirt"></head>
+      <main>Silk Shirt</main>
+    `);
+    const finding = (await runAuditRules({ page, mainResponse: null })).find(
+      (item) => item.ruleId === "canonical-url",
+    );
+    expect(finding).toMatchObject({ status: "passed", severity: "info" });
+    expect(finding?.evidence).toEqual([
+      "Canonical URL: https://shop.example/products/silk-shirt",
+    ]);
+  });
+
+  it("reports missing and conflicting canonical URLs", async () => {
+    await page.setContent("<head><title>Silk Shirt</title></head>");
+    let finding = (await runAuditRules({ page, mainResponse: null })).find(
+      (item) => item.ruleId === "canonical-url",
+    );
+    expect(finding).toMatchObject({ status: "failed", severity: "warning" });
+    expect(finding?.evidence).toEqual([
+      "No canonical link was found in <head>.",
+    ]);
+
+    await page.setContent(`
+      <head>
+        <link rel="canonical" href="https://shop.example/products/silk-shirt">
+        <link rel="canonical" href="https://shop.example/products/other-shirt">
+      </head>
+    `);
+    finding = (await runAuditRules({ page, mainResponse: null })).find(
+      (item) => item.ruleId === "canonical-url",
+    );
+    expect(finding).toMatchObject({ status: "failed", severity: "warning" });
+    expect(finding?.evidence).toEqual([
+      "Canonical links resolve to 2 different URLs.",
+    ]);
+  });
+
+  it("passes multiple non-blocking robots directives", async () => {
+    await page.setContent(`
+      <head>
+        <meta name="robots" content="all, follow">
+        <meta name="googlebot" content="max-snippet:-1">
+      </head><main>Silk Shirt</main>
+    `);
+    const finding = (await runAuditRules({ page, mainResponse: null })).find(
+      (item) => item.ruleId === "robots-indexing",
+    );
+    expect(finding).toMatchObject({ status: "passed", severity: "info" });
+  });
+
+  it.each(["NOINDEX", "none"])(
+    "reports a robots meta %s directive",
+    async (directive) => {
+      await page.setContent(
+        `<head><meta name="robots" content="${directive}"></head><main>Silk Shirt</main>`,
+      );
+      const finding = (await runAuditRules({ page, mainResponse: null })).find(
+        (item) => item.ruleId === "robots-indexing",
+      );
+      expect(finding).toMatchObject({ status: "failed", severity: "warning" });
+      expect(finding?.evidence.join(" ")).toContain(directive.toLowerCase());
+    },
+  );
+
+  it("applies the more restrictive directive across multiple robots meta tags", async () => {
+    await page.setContent(`
+      <head>
+        <meta name="robots" content="all">
+        <meta name="robots" content="nofollow, noindex">
+      </head><main>Silk Shirt</main>
+    `);
+    const finding = (await runAuditRules({ page, mainResponse: null })).find(
+      (item) => item.ruleId === "robots-indexing",
+    );
+    expect(finding).toMatchObject({ status: "failed", severity: "warning" });
+    expect(finding?.evidence).toEqual([
+      "HTML robots meta contains conflicting all and noindex directives; noindex is more restrictive.",
+    ]);
+  });
+
+  it("reports X-Robots-Tag noindex on the final HTML response", async () => {
+    const url = "https://robots-indexing.test/product";
+    await page.route(url, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "text/html",
+        headers: { "X-Robots-Tag": "nofollow, noindex" },
+        body: "<title>Silk Shirt</title><main>Silk Shirt</main>",
+      }),
+    );
+    const mainResponse = await page.goto(url);
+    const finding = (await runAuditRules({ page, mainResponse })).find(
+      (item) => item.ruleId === "robots-indexing",
+    );
+    expect(finding).toMatchObject({ status: "failed", severity: "warning" });
+    expect(finding?.evidence).toEqual(["X-Robots-Tag contains noindex."]);
+    await page.unroute(url);
   });
 
   it("reports a disabled purchase CTA", async () => {

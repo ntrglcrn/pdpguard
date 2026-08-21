@@ -69,6 +69,130 @@ export const pageTitleRule: AuditRule = async ({ page }) => {
   });
 };
 
+export const canonicalUrlRule: AuditRule = async ({ page }) => {
+  const canonicals = await page.evaluate(() =>
+    Array.from(
+      document.head?.querySelectorAll<HTMLLinkElement>(
+        "link[rel~='canonical' i]",
+      ) ?? [],
+    ).map((link) => {
+      const href = link.getAttribute("href")?.trim();
+      if (!href) return null;
+      try {
+        const url = new URL(href, document.baseURI);
+        return ["http:", "https:"].includes(url.protocol) &&
+          !url.username &&
+          !url.password
+          ? url.href
+          : null;
+      } catch {
+        return null;
+      }
+    }),
+  );
+  const distinct = [...new Set(canonicals.filter((url) => url !== null))];
+  const passed =
+    canonicals.length > 0 &&
+    !canonicals.includes(null) &&
+    distinct.length === 1;
+  const evidence =
+    canonicals.length === 0
+      ? "No canonical link was found in <head>."
+      : canonicals.includes(null)
+        ? "A canonical link has an empty or invalid HTTP(S) URL."
+        : distinct.length > 1
+          ? `Canonical links resolve to ${distinct.length} different URLs.`
+          : `Canonical URL: ${distinct[0]}`;
+
+  return finding({
+    id: "canonical-url",
+    ruleId: "canonical-url",
+    title: "Canonical URL",
+    description: passed
+      ? "The document declares one valid canonical URL."
+      : "The document does not declare one unambiguous canonical URL.",
+    severity: passed ? "info" : "warning",
+    status: passed ? "passed" : "failed",
+    evidence: [evidence],
+    recommendation: passed
+      ? "No action is required."
+      : 'Add one valid <link rel="canonical"> in <head> for the preferred product URL.',
+  });
+};
+
+const robotsDirectives = (values: string[]) =>
+  values.flatMap((value) =>
+    value
+      .toLowerCase()
+      .split(",")
+      .map((directive) => directive.trim()),
+  );
+
+export const robotsIndexingRule: AuditRule = async ({ page, mainResponse }) => {
+  const metaValues = await page.evaluate(() =>
+    Array.from(document.querySelectorAll<HTMLMetaElement>("meta[name]"))
+      .filter((meta) =>
+        ["robots", "googlebot"].includes(meta.name.trim().toLowerCase()),
+      )
+      .map((meta) => meta.content),
+  );
+  const contentType = await page.evaluate(() => document.contentType);
+  const headerValues =
+    mainResponse &&
+    ["text/html", "application/xhtml+xml"].includes(contentType.toLowerCase())
+      ? (await mainResponse.headersArray())
+          .filter((header) => header.name.toLowerCase() === "x-robots-tag")
+          .map((header) => header.value)
+          .flatMap((value) => {
+            const scoped = value.match(/^\s*([\w-]+)\s*:\s*(.*)$/);
+            if (!scoped) return value;
+            if (scoped[1].toLowerCase() === "googlebot") return scoped[2];
+            return [
+              "max-snippet",
+              "max-image-preview",
+              "max-video-preview",
+              "unavailable_after",
+            ].includes(scoped[1].toLowerCase())
+              ? value
+              : [];
+          })
+      : [];
+  const metaDirectives = robotsDirectives(metaValues);
+  const headerDirectives = robotsDirectives(headerValues);
+  const directives = [...metaDirectives, ...headerDirectives];
+  const blockedBy = directives.includes("noindex")
+    ? "noindex"
+    : directives.includes("none")
+      ? "none"
+      : null;
+  const source = metaDirectives.includes(blockedBy ?? "")
+    ? "HTML robots meta"
+    : "X-Robots-Tag";
+  const conflict = blockedBy !== null && directives.includes("all");
+  const passed = blockedBy === null;
+
+  return finding({
+    id: "robots-indexing",
+    ruleId: "robots-indexing",
+    title: "Robots indexing",
+    description: passed
+      ? "No directive preventing Google from indexing this HTML document was found."
+      : "A robots directive prevents Google from indexing this HTML document.",
+    severity: passed ? "info" : "warning",
+    status: passed ? "passed" : "failed",
+    evidence: passed
+      ? ["No applicable noindex or none directive was found."]
+      : [
+          conflict
+            ? `${source} contains conflicting all and ${blockedBy} directives; ${blockedBy} is more restrictive.`
+            : `${source} contains ${blockedBy}.`,
+        ],
+    recommendation: passed
+      ? "No action is required."
+      : `If this PDP should appear in Google Search, remove the ${blockedBy} directive from the applicable robots meta tag or final HTML response header.`,
+  });
+};
+
 interface ImageSnapshot {
   src: string;
   alt: string;
@@ -575,6 +699,8 @@ export const structuredProductDataRule: AuditRule = async ({ page }) => {
 export const auditRules: AuditRule[] = [
   pageAvailabilityRule,
   pageTitleRule,
+  canonicalUrlRule,
+  robotsIndexingRule,
   productImageRule,
   brokenImagesRule,
   productPriceRule,

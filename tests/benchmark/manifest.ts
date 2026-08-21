@@ -13,7 +13,8 @@ const productJsonLd = `
 `;
 
 const completePdp = `
-  <!doctype html><html><head><title>Silk Shirt</title>${productJsonLd}</head><body>
+  <!doctype html><html><head><title>Silk Shirt</title>
+  <link rel="canonical" href="https://example.com/products/silk-shirt">${productJsonLd}</head><body>
   <main><h1>Silk Shirt</h1>${productImage}
   <p class="price">$129.00</p><button>Add to cart</button></main>
   </body></html>
@@ -22,6 +23,8 @@ const completePdp = `
 export const benchmarkRuleIds = [
   "page-availability",
   "page-title",
+  "canonical-url",
+  "robots-indexing",
   "product-image",
   "broken-images",
   "product-price",
@@ -60,6 +63,38 @@ export const benchmarkCases = [
     control: "positive",
     html: "<main>Product details</main>",
     expected: { ruleId: "page-title", status: "failed" },
+  },
+  {
+    name: "canonical-url/positive-control/missing-canonical",
+    control: "positive",
+    html: "<head><title>Silk Shirt</title></head><main>Product details</main>",
+    expected: { ruleId: "canonical-url", status: "failed" },
+  },
+  {
+    name: "robots-indexing/positive-control/meta-noindex",
+    control: "positive",
+    html: '<head><meta name="robots" content="noindex"></head><main>Silk Shirt</main>',
+    expected: { ruleId: "robots-indexing", status: "failed" },
+  },
+  {
+    name: "robots-indexing/regression/meta-none",
+    control: "regression",
+    html: '<head><meta name="robots" content="none"></head><main>Silk Shirt</main>',
+    expected: {
+      ruleId: "robots-indexing",
+      status: "failed",
+      evidenceIncludes: "none",
+    },
+  },
+  {
+    name: "robots-indexing/regression/conflicting-multiple-meta-directives",
+    control: "regression",
+    html: '<head><meta name="robots" content="all"><meta name="robots" content="nofollow, noindex"></head><main>Silk Shirt</main>',
+    expected: {
+      ruleId: "robots-indexing",
+      status: "failed",
+      evidenceIncludes: "conflicting all and noindex",
+    },
   },
   {
     name: "product-image/positive-control/missing-product-image",

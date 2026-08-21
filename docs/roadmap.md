@@ -54,19 +54,22 @@ AI может помогать группировать или объяснят�
 - [x] UI запускает аудит одной публичной HTTP(S)-страницы и показывает
       findings и full-page screenshot в viewport 390 × 844.
 - [x] Playwright runner ограничивает время аудита, redirects и высоту
-      screenshot; блокирует service workers и WebSockets.
+      screenshot; блокирует service workers и WebSockets; после
+      `domcontentloaded` ждёт bounded structural readiness перед rules.
 - [x] URL проходят DNS-проверку: локальные, private, reserved и URL с
       credentials отклоняются до навигации и при запросах страницы.
-- [x] Есть типизированные `Finding`, summary и семь независимых правил:
-      availability, title, product image, broken images, visible price, purchase
-      CTA и Product/ProductGroup JSON-LD.
+- [x] Есть типизированные `Finding`, summary и девять независимых правил:
+      availability, title, canonical URL, robots indexing, product image, broken
+      images, visible price, purchase CTA и Product/ProductGroup JSON-LD.
 - [x] Есть unit-тесты URL safety, summary, price/CTA matching и JSON-LD, а
-      также browser fixtures для текущих эвристик. В `docs/calibration.md` есть
-      ручная калибровка 25 live URL (23 включены, два anti-bot случая исключены).
+      также browser fixtures для текущих эвристик и delayed/permanent/immediate
+      readiness states. В `docs/calibration.md` есть ручная калибровка 25 live
+      URL (23 включены, два anti-bot случая исключены).
 - [x] Скриншоты временно хранятся локально до 24 часов.
 - [x] Есть исполнимый benchmark с локальным manifest, positive/negative
-      controls для семи правил, 13 именованными purchase CTA regressions,
-      regression для lazy image placeholder и командой `pnpm benchmark`.
+      controls для девяти правил, 13 именованными purchase CTA regressions,
+      regressions для lazy image placeholder, robots indexing directives и
+      permanent loader execution state и командой `pnpm benchmark`.
 - [x] Есть один GitHub Actions workflow для clean-checkout verification:
       lint, typecheck, browser tests, benchmark и production build.
 - [x] Поддерживаемое окружение и официальный clean-checkout workflow
@@ -93,6 +96,14 @@ AI может помогать группировать или объяснят�
   Adobe Commerce / Magento. Найденный на Magento PDP false positive
   `broken-images` для lazy image placeholders исправлен и закреплён локальным
   regression case; настоящий broken image остаётся positive control.
+- Live запуск Gold Apple подтвердил системный failure mode: прежний runner
+  запускал rules по preloader и создавал cascade false warnings. Bounded
+  readiness gate теперь пропускает rules только после стабильного auditable
+  state, а permanent loader даёт один incomplete outcome.
+- Full-page screenshot captures the current rendered document but deliberately
+  does not force offscreen lazy components or shopper-specific interactions to
+  materialize. This is a documented calibration limitation, not a reason to
+  reinterpret DOM-based findings from the captured state.
 
 ---
 
@@ -100,7 +111,7 @@ AI может помогать группировать или объяснят�
 
 **Current — Deterministic PDP Auditor**
 
-Один локальный mobile audit даёт evidence для семи core checks. Ценность —
+Один локальный mobile audit даёт evidence для девяти core checks. Ценность —
 быстро увидеть явный purchase blocker на конкретной публичной странице.
 
 ↓
@@ -191,6 +202,10 @@ CI.
 - [x] Документировать поддерживаемое Node/pnpm/Playwright окружение.
       **Priority:** High. **Impact:** проблемы приложения отделены от ограничений
       среды.
+- [x] Добавить deterministic PDP readiness gate перед rule engine и browser
+      regressions для delayed PDP, permanent loader и immediately ready PDP.
+      **Priority:** Critical. **Impact:** loader state больше не создаёт cascade
+      false findings.
 
 **Risks:** Playwright зависит от браузерных binaries и OS permissions; stale
 generated output может маскировать состояние source tree.
@@ -223,6 +238,9 @@ negative control.
 - [x] Добавить именованные regression cases для подтверждённых false
       positives/negatives из существующих tests, calibration и git history.
       **Priority:** High. **Impact:** снижает шум findings.
+- [x] Закрепить permanent loader как execution-level benchmark regression без
+      live URL в CI. **Priority:** Critical. **Impact:** обычные PDP rules не
+      запускаются по неготовому DOM.
 - [x] Расширять `docs/calibration.md` разными storefront platforms и failure
       modes, не включая live сайты в CI. **Priority:** High. **Impact:** проверяет
       переносимость эвристик.
@@ -238,7 +256,7 @@ Significant SaaS infrastructure work begins only when all gates below are
 met. They protect the team from scaling an unverified detector and are
 intentionally observable conditions, not arbitrary thresholds.
 
-- **Executable benchmark:** the seven existing rules have named local cases,
+- **Executable benchmark:** the nine existing rules have named local cases,
   expected findings and negative controls where a heuristic can produce a
   false positive. **Why:** persistent reports make rule behavior a customer
   contract.
@@ -315,8 +333,16 @@ recommendation, benchmark cases и calibration evidence. Critical использ
 
 **Tasks:**
 
-- [ ] Добавить canonical, robots, Open Graph и hreflang checks. **Priority:**
-      High. **Impact:** это дешёвые и детерминированные document-level сигналы.
+- [x] Добавить проверку canonical URL. **Priority:** High. **Impact:** выявляет
+      missing, invalid и conflicting canonical declarations на PDP.
+- [x] Добавить robots indexing directive check. **Priority:** High. **Impact:**
+      выявляет PDP, исключённые из поискового индекса через `noindex` или
+      `none` в применимых meta robots и финальном HTML `X-Robots-Tag`.
+- [ ] Добавить Open Graph check. **Priority:** Medium. **Impact:** проверяет
+      базовые product sharing metadata.
+- [ ] Добавить hreflang check после multi-locale calibration. **Priority:**
+      Medium. **Impact:** полезен международным storefronts, но требует
+      аккуратной проверки reciprocal locale mappings.
 - [ ] Уточнить текущую JSON-LD проверку для price, currency и availability.
       **Priority:** High. **Impact:** сейчас combined finding не выделяет эти
       важные ecommerce defects.
@@ -600,9 +626,13 @@ Metrics measure product trust and customer value, not raw scan volume.
 
 # Current Focus
 
-**Провести формальную Gate to SaaS review: сопоставить каждый planning gate с
-проверяемым evidence и явно зафиксировать passed или blocked.**
+**Уточнить существующий `structured-product-data` finding для
+`priceCurrency` и `availability`, сохранив deterministic Product/ProductGroup
+semantics.**
 
-Hosted security design boundary документирована без реализации infrastructure.
-Следующий шаг — проверить все planning gates как единое решение и не начинать
-Phase 3 или Phase 4 до явного результата review.
+Deterministic readiness gate завершён: delayed PDP дожидается stable auditable
+state, permanent loader возвращает один incomplete `page-availability` outcome,
+а обычные rules не создают cascade warnings по preloader. Следующая задача
+остаётся в High-confidence PDP Coverage и должна сначала зафиксировать
+корректные Product, ProductGroup и Offer варианты, не добавляя новое правило
+автоматически.

@@ -51,6 +51,12 @@ route types, so verification does not depend on developer-local build output.
 - `src/lib/url-safety.ts` owns SSRF validation.
 - `src/lib/screenshot-storage.ts` owns temporary local screenshot storage.
 
+After `domcontentloaded`, the browser runner waits up to 15 seconds for a
+bounded auditable state: observable content or a generic PDP signal must remain
+structurally stable for 750 ms. If that state is not reached, the normal PDP
+rules are skipped and the result contains one incomplete `page-availability`
+finding instead of warnings derived from a loader.
+
 Screenshots are stored under `.runtime/screenshots`, excluded from Git, and removed opportunistically after 24 hours. No audit history is persisted.
 
 ## MVP limitations

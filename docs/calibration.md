@@ -1,6 +1,6 @@
 # PDP calibration matrix
 
-Last checked: 2026-08-13. Viewport: 390 × 844. These are manual labels
+Last checked: 2026-08-21. Viewport: 390 × 844. These are manual labels
 compared with the JSON result and screenshot from the local audit endpoint.
 `P` means Passed, `W` Warning and `C` Critical. Expected and actual columns use
 the order CTA / price / image / structured data.
@@ -72,6 +72,8 @@ manual calibration evidence only and are not benchmark or CI dependencies.
 | ------------------------- | ------------------------------------------------------- | --------------- | -------------- | ----------------------------------------------------------- |
 | `page-availability`       | Pass for a reachable PDP                                | Passed          | TN             | HTTP 200 and 3,988 visible text characters                  |
 | `page-title`              | Pass for a product-specific title                       | Passed          | TN             | `Mesa Jacket - Onyx Black`                                  |
+| `canonical-url`           | Pass for one unambiguous product canonical              | Passed          | TN             | Canonical resolves to the audited product URL               |
+| `robots-indexing`         | Pass when no indexing prohibition is declared           | Passed          | TN             | No applicable meta robots or HTML response header directive |
 | `product-image`           | Pass for the visible primary product image              | Passed          | TN             | 390 × 507 rendered image with product-specific alt text     |
 | `broken-images`           | Pass when visible images load                           | Passed          | TN             | No visible image had an empty source or zero natural width  |
 | `product-price`           | Pass for the visible product price                      | Passed          | TN             | `$350.00`                                                   |
@@ -87,15 +89,17 @@ manual calibration evidence only and are not benchmark or CI dependencies.
   selected configuration
 - **Checked:** 2026-08-21 at 390 × 844
 
-| ruleId                    | Expected behavior                               | Actual behavior | Classification | Evidence                                                   |
-| ------------------------- | ----------------------------------------------- | --------------- | -------------- | ---------------------------------------------------------- |
-| `page-availability`       | Pass for a reachable PDP                        | Passed          | TN             | HTTP 200 and 4,820 visible text characters                 |
-| `page-title`              | Pass for a product-specific title               | Passed          | TN             | `The Clark • Landyachtz`                                   |
-| `product-image`           | Pass for the visible primary product image      | Passed          | TN             | 370 × 370 rendered image; 1,600 × 1,600 natural size       |
-| `broken-images`           | Pass when visible images load                   | Passed          | TN             | No visible image had an empty source or zero natural width |
-| `product-price`           | Pass for the visible product price              | Passed          | TN             | `$219.99`                                                  |
-| `purchase-cta`            | Pass for an explicit unavailable selected setup | Passed          | TN             | Setup controls and `NOTIFY ME WHEN AVAILABLE` were visible |
-| `structured-product-data` | Pass for complete Product JSON-LD               | Passed          | TN             | Name, image, offer price and availability were present     |
+| ruleId                    | Expected behavior                               | Actual behavior | Classification | Evidence                                                    |
+| ------------------------- | ----------------------------------------------- | --------------- | -------------- | ----------------------------------------------------------- |
+| `page-availability`       | Pass for a reachable PDP                        | Passed          | TN             | HTTP 200 and 4,820 visible text characters                  |
+| `page-title`              | Pass for a product-specific title               | Passed          | TN             | `The Clark • Landyachtz`                                    |
+| `canonical-url`           | Pass for one unambiguous product canonical      | Passed          | TN             | Canonical resolves to the audited product URL               |
+| `robots-indexing`         | Pass when no indexing prohibition is declared   | Passed          | TN             | No applicable meta robots or HTML response header directive |
+| `product-image`           | Pass for the visible primary product image      | Passed          | TN             | 370 × 370 rendered image; 1,600 × 1,600 natural size        |
+| `broken-images`           | Pass when visible images load                   | Passed          | TN             | No visible image had an empty source or zero natural width  |
+| `product-price`           | Pass for the visible product price              | Passed          | TN             | `$219.99`                                                   |
+| `purchase-cta`            | Pass for an explicit unavailable selected setup | Passed          | TN             | Setup controls and `NOTIFY ME WHEN AVAILABLE` were visible  |
+| `structured-product-data` | Pass for complete Product JSON-LD               | Passed          | TN             | Name, image, offer price and availability were present      |
 
 ### Catbird — mandatory region gate and lazy image placeholders
 
@@ -111,6 +115,8 @@ manual calibration evidence only and are not benchmark or CI dependencies.
 | ------------------------- | ------------------------------------------------------ | ----------------------------------------------------- | -------------- | --------------------------------------------------------------------------------------------- |
 | `page-availability`       | Pass for a reachable PDP                               | Passed                                                | TN             | HTTP 200 and 5,486 visible text characters                                                    |
 | `page-title`              | Pass for a product-specific title                      | Passed                                                | TN             | `Petite Coupe Ring, Solid 14k Yellow Gold \| Catbird Jewelry`                                 |
+| `canonical-url`           | Pass for one unambiguous product canonical             | Passed                                                | TN             | Canonical resolves to the audited product URL                                                 |
+| `robots-indexing`         | Pass when no indexing prohibition is declared          | Passed                                                | TN             | No applicable meta robots or HTML response header directive                                   |
 | `product-image`           | Pass for the visible primary product image             | Passed                                                | TN             | 350 × 350 rendered image with product-specific alt text                                       |
 | `broken-images`           | Pass because no broken image is visible to the shopper | Warning: two visible images reported with empty `src` | FP             | Product/gallery media render in the screenshot; empty lazy placeholders are counted as broken |
 | `product-price`           | Pass for the visible product price                     | Passed                                                | TN             | `$448.00`                                                                                     |
@@ -129,10 +135,58 @@ The document now covers seven storefronts in total (six reachable and one
 anti-bot-blocked) instead of four. It explicitly records Shopify, Adobe
 Commerce / Magento and WooCommerce, plus a headless Shopify/Next.js
 architecture. The new cases add sold-out/restock, unavailable selected variant,
-mandatory region gate and lazy image placeholder states. Every existing
-`ruleId` now has live evidence.
+mandatory region gate and lazy image placeholder states. A 2026-08-21 recheck
+also found a valid `canonical-url` on AETHER, Landyachtz and Catbird, giving the
+rule live evidence across headless Shopify, WooCommerce and Adobe Commerce. The
+same live recheck found no applicable `noindex` or `none` in robots meta tags or
+the final HTML response headers on those three PDPs, adding three TN cases for
+`robots-indexing`. Every existing `ruleId` now has live evidence.
 
 One false positive was confirmed and subsequently fixed: `broken-images` no
 longer treats Catbird's empty lazy image placeholders as shopper-visible broken
 images. No false negative was found. Local regression coverage now preserves
 both the placeholder case and detection of a real broken image.
+
+## Readiness failure mode — Gold Apple preloader
+
+- **Live observation:** a real Gold Apple PDP audit captured only the preloader
+  in its screenshot while the rule engine had already emitted multiple missing
+  PDP warnings.
+- **Checked:** 2026-08-21 at 390 × 844.
+- **Classification:** systemic false positives caused by audit lifecycle, not
+  independent price, CTA, image or structured-data defects.
+- **CI boundary:** the live PDP URL is not a test dependency. The observed URL
+  was not retained in the repository; committed local fixtures reproduce the
+  delayed and permanent loader states.
+
+The previous lifecycle treated `domcontentloaded`, a best-effort `load` wait
+and a fixed 750 ms delay as sufficient readiness. The replacement waits up to
+15 seconds for meaningful visible content or any generic PDP signal to remain
+structurally stable for 750 ms. It does not inspect Gold Apple classes, loader
+names or storefront-specific markup, and it does not wait for global network
+idle.
+
+The local delayed fixture now waits for the final PDP and runs all nine rules
+against it. The permanent-loader fixture returns only a critical
+`page-availability` outcome whose evidence says the audit is incomplete; the
+other eight rules are skipped. An immediately ready fixture uses the same 750
+ms stability target as the previous fixed wait. A post-fix live Gold Apple
+recheck remains manual calibration work; no live site was added to CI.
+
+### Full-page capture limitation
+
+On 2026-08-21, the repaired Chromium mobile profile captured this PDP as a
+7,440-pixel PNG for a 2,480 CSS-pixel document at device scale factor 3.
+Scrolling through the document and waiting another 12 seconds did not change
+its height, image count, review content or purchase CTA DOM. The visually
+sparse lower screenshot is therefore an accurate artifact of the rendered
+mobile document, not an incomplete Playwright full-page capture and not lazy
+content skipped before the current rules ran.
+
+Current document-level and visible-DOM findings are unaffected by that sparse
+artifact: the title, canonical, robots, product image, broken-image and price
+inputs were present in the same DOM. The missing purchase CTA is a separate
+browser-context calibration question because it is absent from this audit DOM,
+not hidden by the screenshot. Full-page capture does not promise to materialize
+content that a storefront defers until a shopper action or a different session
+context; such interaction coverage needs a separately calibrated rule flow.

@@ -18,7 +18,9 @@ PDP Guard translates technical checks into plain ecommerce findings: what failed
 
 ## Current scope
 
-Stage 1 audits one user-provided public PDP per run in a mobile browser. It checks page availability, title, product imagery, broken images, visible price, purchase CTA, and Product/ProductGroup JSON-LD, then returns a screenshot and report.
+Stage 1 audits one user-provided public PDP per run in a mobile browser. It checks page availability, title, canonical URL, robots indexing directives, product imagery, broken images, visible price, purchase CTA, and Product/ProductGroup JSON-LD, then returns a screenshot and report.
+
+The `robots-indexing` check follows [Google Search's documented HTML behavior](https://developers.google.com/search/docs/crawling-indexing/robots-meta-tag): it combines applicable `robots` and `googlebot` meta directives with the final HTML response's `X-Robots-Tag` values, treats `none` as `noindex, nofollow`, and applies the more restrictive directive when documented rules conflict. It does not inspect `robots.txt`, Search Console, crawl budget, actual index status, or the reason a store declares `noindex`.
 
 The current implementation has no accounts, persistence, catalog discovery, checkout interaction, third-party integrations, or AI.
 

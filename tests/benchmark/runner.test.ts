@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { chromium, type Browser, type Page } from "playwright";
 
+import { runAuditWhenReady } from "@/lib/audit/engine";
 import { runAuditRules } from "@/lib/audit/rules";
 import { benchmarkCases, benchmarkRuleIds } from "./manifest";
 
@@ -17,6 +18,20 @@ afterAll(async () => {
 });
 
 describe("audit rule benchmark", () => {
+  it("execution-readiness/regression/permanent-loader", async () => {
+    await page.setContent("<title>Loading…</title><main>Loading…</main>");
+    const findings = await runAuditWhenReady(
+      { page, mainResponse: null },
+      { timeoutMs: 350, stabilityMs: 150 },
+    );
+
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toMatchObject({
+      ruleId: "page-availability",
+      status: "failed",
+    });
+  });
+
   it("declares positive and negative controls for every stable ruleId", () => {
     for (const ruleId of benchmarkRuleIds) {
       const controls = benchmarkCases
