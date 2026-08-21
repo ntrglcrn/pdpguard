@@ -2,15 +2,17 @@
 
 PDP Guard is a local MVP for auditing one public ecommerce product page at a time. It opens the page in a mobile Chromium viewport, runs deterministic checks, captures a full-page screenshot, and presents evidence-oriented findings.
 
-## Requirements
+## Supported environment
 
-- Node.js 20.9 or newer
-- pnpm 10
+- Node.js 24.x for the supported verification environment (`package.json`
+  retains the framework minimum of Node.js 20.9)
+- pnpm 10.28.0
+- Playwright 1.62.1 with its matching Chromium build
 
 ## Setup
 
 ```bash
-pnpm install
+pnpm install --frozen-lockfile
 pnpm exec playwright install chromium
 ```
 
@@ -22,14 +24,24 @@ pnpm dev
 
 Open [http://localhost:3000](http://localhost:3000), enter a public product page URL, and select **Run audit**.
 
-## Checks
+## Verification
+
+The official clean-checkout gate is `.github/workflows/ci.yml` on
+`ubuntu-latest`. It installs the pinned pnpm version, Node.js 24 and Chromium
+system dependencies, then runs:
 
 ```bash
+pnpm install --frozen-lockfile
 pnpm lint
 pnpm typecheck
+pnpm exec playwright install --with-deps chromium
 pnpm test
+pnpm benchmark
 pnpm build
 ```
+
+`pnpm typecheck` removes generated `.next` artifacts before regenerating Next.js
+route types, so verification does not depend on developer-local build output.
 
 ## Architecture
 

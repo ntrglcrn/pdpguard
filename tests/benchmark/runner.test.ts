@@ -20,7 +20,11 @@ describe("audit rule benchmark", () => {
   it("declares positive and negative controls for every stable ruleId", () => {
     for (const ruleId of benchmarkRuleIds) {
       const controls = benchmarkCases
-        .filter((benchmarkCase) => benchmarkCase.expected.ruleId === ruleId)
+        .filter(
+          (benchmarkCase) =>
+            benchmarkCase.expected.ruleId === ruleId &&
+            benchmarkCase.control !== "regression",
+        )
         .map((benchmarkCase) => benchmarkCase.control);
       expect(controls, `${ruleId} controls`).toEqual(["negative", "positive"]);
     }
@@ -43,6 +47,16 @@ describe("audit rule benchmark", () => {
       if (actual?.status !== benchmarkCase.expected.status) {
         throw new Error(
           `Benchmark case "${benchmarkCase.name}" expected ${benchmarkCase.expected.ruleId}=${benchmarkCase.expected.status}, actual=${actual?.status ?? "missing"}.`,
+        );
+      }
+
+      const expectedEvidence = benchmarkCase.expected.evidenceIncludes;
+      if (
+        expectedEvidence &&
+        !actual.evidence.join(" ").includes(expectedEvidence)
+      ) {
+        throw new Error(
+          `Benchmark case "${benchmarkCase.name}" expected ${benchmarkCase.expected.ruleId} evidence to include "${expectedEvidence}", actual=${JSON.stringify(actual.evidence)}.`,
         );
       }
     });

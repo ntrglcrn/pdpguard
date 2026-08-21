@@ -52,24 +52,30 @@ AI может помогать группировать или объяснят�
 Проект — один Next.js 16 application, пока локальный MVP.
 
 - [x] UI запускает аудит одной публичной HTTP(S)-страницы и показывает
-  findings и full-page screenshot в viewport 390 × 844.
+      findings и full-page screenshot в viewport 390 × 844.
 - [x] Playwright runner ограничивает время аудита, redirects и высоту
-  screenshot; блокирует service workers и WebSockets.
+      screenshot; блокирует service workers и WebSockets.
 - [x] URL проходят DNS-проверку: локальные, private, reserved и URL с
-  credentials отклоняются до навигации и при запросах страницы.
+      credentials отклоняются до навигации и при запросах страницы.
 - [x] Есть типизированные `Finding`, summary и семь независимых правил:
-  availability, title, product image, broken images, visible price, purchase
-  CTA и Product/ProductGroup JSON-LD.
+      availability, title, product image, broken images, visible price, purchase
+      CTA и Product/ProductGroup JSON-LD.
 - [x] Есть unit-тесты URL safety, summary, price/CTA matching и JSON-LD, а
-  также browser fixtures для текущих эвристик. В `docs/calibration.md` есть
-  ручная калибровка 22 live URL (20 включены в gate).
+      также browser fixtures для текущих эвристик. В `docs/calibration.md` есть
+      ручная калибровка 25 live URL (23 включены, два anti-bot случая исключены).
 - [x] Скриншоты временно хранятся локально до 24 часов.
 - [x] Есть исполнимый benchmark с локальным manifest, positive/negative
-  controls для семи правил и командой `pnpm benchmark`.
+      controls для семи правил, 13 именованными purchase CTA regressions,
+      regression для lazy image placeholder и командой `pnpm benchmark`.
 - [x] Есть один GitHub Actions workflow для clean-checkout verification:
-  lint, typecheck, browser tests, benchmark и production build.
+      lint, typecheck, browser tests, benchmark и production build.
+- [x] Поддерживаемое окружение и официальный clean-checkout workflow
+      документированы в `README.md` и соответствуют CI.
+- [x] Минимальная hosted security architecture документирована в
+      `docs/hosted-security-boundary.md`; её worker, tenant и artifact controls
+      являются future requirements и ещё не реализованы.
 - [ ] Нет accounts, workspaces, persistence, очереди, isolated workers,
-  catalog scanning, API, exports и integrations.
+      catalog scanning, API, exports и integrations.
 
 Технические долги, подтверждённые текущей проверкой:
 
@@ -83,8 +89,10 @@ AI может помогать группировать или объяснят�
   на реальном GitHub-hosted runner.
 - Global `auditInProgress`, local filesystem screenshots и runner в web
   process подходят для MVP, но не для публичного multi-tenant SaaS.
-- 15 из 20 включённых calibration URL принадлежат одному магазину; переносимость
-  правил на разные платформы пока не доказана.
+- Multi-platform calibration включает Shopify, headless Shopify, WooCommerce и
+  Adobe Commerce / Magento. Найденный на Magento PDP false positive
+  `broken-images` для lazy image placeholders исправлен и закреплён локальным
+  regression case; настоящий broken image остаётся positive control.
 
 ---
 
@@ -176,13 +184,13 @@ CI.
 **Tasks:**
 
 - [x] Убирать generated `.next` artifacts перед verification. **Priority:**
-  Critical. **Impact:** typecheck снова отражает исходный код.
+      Critical. **Impact:** typecheck снова отражает исходный код.
 - [x] Добавить один CI workflow: install, lint, typecheck, test, browser
-  install и build; подключить benchmark, как только он появится. **Priority:**
-  Critical. **Impact:** регрессии перестают зависеть от машины разработчика.
-- [ ] Документировать поддерживаемое Node/pnpm/Playwright окружение.
-  **Priority:** High. **Impact:** проблемы приложения отделены от ограничений
-  среды.
+      install и build; подключить benchmark, как только он появится. **Priority:**
+      Critical. **Impact:** регрессии перестают зависеть от машины разработчика.
+- [x] Документировать поддерживаемое Node/pnpm/Playwright окружение.
+      **Priority:** High. **Impact:** проблемы приложения отделены от ограничений
+      среды.
 
 **Risks:** Playwright зависит от браузерных binaries и OS permissions; stale
 generated output может маскировать состояние source tree.
@@ -207,16 +215,17 @@ negative control.
 **Tasks:**
 
 - [x] Создать минимальный benchmark manifest и runner поверх существующих
-  browser fixtures. **Priority:** Critical. **Impact:** каждое изменение
-  правила получает regression gate без зависимости от внешних сайтов.
+      browser fixtures. **Priority:** Critical. **Impact:** каждое изменение
+      правила получает regression gate без зависимости от внешних сайтов.
 - [x] Вынести репрезентативные CTA, price, image и JSON-LD cases в именованные
-  benchmark cases. **Priority:** Critical. **Impact:** поведение правил
-  становится явным продуктовым контрактом.
-- [ ] Добавлять regression cases для обнаруженных false positives/negatives.
-  **Priority:** High. **Impact:** снижает шум findings.
-- [ ] Расширять `docs/calibration.md` разными storefront platforms и failure
-  modes, не включая live сайты в CI. **Priority:** High. **Impact:** проверяет
-  переносимость эвристик.
+      benchmark cases. **Priority:** Critical. **Impact:** поведение правил
+      становится явным продуктовым контрактом.
+- [x] Добавить именованные regression cases для подтверждённых false
+      positives/negatives из существующих tests, calibration и git history.
+      **Priority:** High. **Impact:** снижает шум findings.
+- [x] Расширять `docs/calibration.md` разными storefront platforms и failure
+      modes, не включая live сайты в CI. **Priority:** High. **Impact:** проверяет
+      переносимость эвристик.
 
 **Risks:** магазины меняются и блокируют automation; fixture не должна
 подменять реальную страницу случайным synthetic HTML.
@@ -247,12 +256,46 @@ intentionally observable conditions, not arbitrary thresholds.
   from one store. **Why:** one-site success does not establish ecommerce value.
 - **Security design boundary:** the hosted design preserves existing URL
   validation and specifies isolation, bounded resources, screenshot access and
-  tenant authorization before public exposure. **Why:** untrusted navigation
-  is the product's primary security boundary.
+  tenant authorization in `docs/hosted-security-boundary.md`. This design is
+  documented but not implemented. **Why:** untrusted navigation is the
+  product's primary security boundary.
 
-Passing this gate authorizes Phase 3 and Phase 4; it does not itself imply that
-the public release gate is passed. No new audit rule or SaaS feature begins
-before this gate is passed.
+The criteria above authorize Phase 3 and implementation work in Phase 4. They
+do not authorize exposing the local MVP or an incomplete hosted stack.
+
+### Must exist before hosted alpha
+
+- Authenticated workspace ownership and object-level authorization across
+  Workspace → Store → Audit Run → Finding / Screenshot.
+- Browser execution outside the web process, isolated per job and governed by
+  durable lifecycle, cancellation and configurable resource limits.
+- Existing URL/request/redirect validation plus connection-time egress controls
+  that block private networks and DNS-rebinding paths.
+- Private run-bound artifact storage with authorized access and enforced
+  retention/deletion; no hosted local-filesystem assumption.
+- Bounded stored data and sanitized failure responses.
+
+### Must exist before paid release
+
+- Production evidence for tenant isolation, worker containment, SSRF/egress and
+  resource ceilings under concurrency and representative failures.
+- Operational visibility for job attempts, retry/cancellation, artifact
+  deletion and security-policy failures without unrestricted page capture.
+- Tested retention/deletion and recovery behavior plus an incident path for
+  browser-boundary or cross-tenant events.
+
+### Can be deferred
+
+- SSO, enterprise roles, custom tenant policies and custom retention.
+- Multi-region/data-residency controls and customer-managed storage/workers.
+- Private storefront access or customer browser sessions, which require a
+  separate trust model.
+
+These are readiness criteria, not an implementation backlog. The canonical
+invariants, current gaps and failure model remain in
+`docs/hosted-security-boundary.md`. Passing the planning gate authorizes work;
+hosted alpha and paid release each remain blocked until their respective
+runtime criteria are verified.
 
 ---
 
@@ -273,18 +316,18 @@ recommendation, benchmark cases и calibration evidence. Critical использ
 **Tasks:**
 
 - [ ] Добавить canonical, robots, Open Graph и hreflang checks. **Priority:**
-  High. **Impact:** это дешёвые и детерминированные document-level сигналы.
+      High. **Impact:** это дешёвые и детерминированные document-level сигналы.
 - [ ] Уточнить текущую JSON-LD проверку для price, currency и availability.
-  **Priority:** High. **Impact:** сейчас combined finding не выделяет эти
-  важные ecommerce defects.
+      **Priority:** High. **Impact:** сейчас combined finding не выделяет эти
+      важные ecommerce defects.
 - [ ] Добавить alt text и lazy-load readiness для product image, используя
-  existing image snapshot. **Priority:** Medium. **Impact:** даёт coverage
-  accessibility и image delivery без нового browser flow.
+      existing image snapshot. **Priority:** Medium. **Impact:** даёт coverage
+      accessibility и image delivery без нового browser flow.
 - [ ] Добавлять breadcrumbs, reviews и variant-state checks только после
-  реальных примеров с устойчивой семантикой. **Priority:** Medium. **Impact:**
-  полезны, но сильно зависят от storefront implementation.
+      реальных примеров с устойчивой семантикой. **Priority:** Medium. **Impact:**
+      полезны, но сильно зависят от storefront implementation.
 - [ ] Собирать bounded, deduplicated browser console errors. **Priority:**
-  Medium. **Impact:** добавляет техническое evidence без шумного log dump.
+      Medium. **Impact:** добавляет техническое evidence без шумного log dump.
 
 **Risks:** язык и платформенные паттерны дают false positives; нельзя менять
 severity или existing rule IDs без benchmark regression cases.
@@ -308,18 +351,18 @@ product.
 **Tasks:**
 
 - [ ] Определить минимальную persistence model: workspace, member, store,
-  audit run, finding и screenshot reference. **Priority:** Critical.
-  **Impact:** заменяет отсутствие history минимальной коммерческой моделью.
+      audit run, finding и screenshot reference. **Priority:** Critical.
+      **Impact:** заменяет отсутствие history минимальной коммерческой моделью.
 - [ ] Добавить authentication и workspace authorization до сохранения customer
-  URLs/results. **Priority:** Critical. **Impact:** создаёт tenant boundary.
+      URLs/results. **Priority:** Critical. **Impact:** создаёт tenant boundary.
 - [ ] Изолировать browser workers и заменить global lock durable job state.
-  **Priority:** Critical. **Impact:** защищает web app от untrusted browser work
-  и позволяет horizontal scaling.
+      **Priority:** Critical. **Impact:** защищает web app от untrusted browser work
+      и позволяет horizontal scaling.
 - [ ] Перенести screenshots в durable object storage с access control и
-  retention. **Priority:** High. **Impact:** local files не подходят для
-  deployment и multi-tenant access.
+      retention. **Priority:** High. **Impact:** local files не подходят для
+      deployment и multi-tenant access.
 - [ ] Добавить audit history и single-run report. **Priority:** High.
-  **Impact:** делает результаты повторно полезными клиенту.
+      **Impact:** делает результаты повторно полезными клиенту.
 
 **Risks:** SSRF/evasion, egress control, browser resource exhaustion и
 cross-tenant access. Текущий runner нельзя публично публиковать как есть.
@@ -342,15 +385,15 @@ observable; comparison строится по stable rule ID; export не рас�
 **Tasks:**
 
 - [ ] Добавить bounded intake URLs принадлежащего customer каталога.
-  **Priority:** High. **Impact:** создаёт monitoring без преждевременного
-  public-web crawler.
+      **Priority:** High. **Impact:** создаёт monitoring без преждевременного
+      public-web crawler.
 - [ ] Добавить schedules, statuses, retries и cancellation в durable jobs.
-  **Priority:** High. **Impact:** делает recurring checks надёжными.
+      **Priority:** High. **Impact:** делает recurring checks надёжными.
 - [ ] Сравнивать completed runs по rule ID и finding status. **Priority:**
-  High. **Impact:** превращает audit в detector regression.
+      High. **Impact:** превращает audit в detector regression.
 - [ ] Добавить shareable report и один export format после стабилизации report
-  model. **Priority:** Medium. **Impact:** помогает agency/client workflow без
-  нескольких document pipelines.
+      model. **Priority:** Medium. **Impact:** помогает agency/client workflow без
+      нескольких document pipelines.
 
 **Risks:** crawl volume, anti-bot pages, dynamic content и screenshot costs
 требуют жёстких limits.
@@ -373,15 +416,15 @@ isolation.
 **Tasks:**
 
 - [ ] Опубликовать API для stores, audit runs, findings и reports.
-  **Priority:** High. **Impact:** автоматизация появляется до затрат на много
-  native integrations.
+      **Priority:** High. **Impact:** автоматизация появляется до затрат на много
+      native integrations.
 - [ ] Добавить один issue-tracker по подтверждённому customer demand.
-  **Priority:** Medium. **Impact:** связывает finding с remediation без
-  спекулятивных connectors.
+      **Priority:** Medium. **Impact:** связывает finding с remediation без
+      спекулятивных connectors.
 - [ ] Добавить webhooks о completed и changed audit runs. **Priority:**
-  Medium. **Impact:** подключает deployment и notification flows клиента.
+      Medium. **Impact:** подключает deployment и notification flows клиента.
 - [ ] Расширять owner/member roles только при реальной потребности. **Priority:**
-  Low. **Impact:** исключает преждевременную permission matrix.
+      Low. **Impact:** исключает преждевременную permission matrix.
 
 **Risks:** OAuth tokens, webhooks replay, rate limits и idempotency увеличивают
 security и support cost.
@@ -428,14 +471,14 @@ shared runner, benchmark и authorization model, а не в отдельных U
 # Future Ideas
 
 - [ ] Controlled add-to-cart и PDP/cart price consistency после явной модели
-  customer authorization и safe interaction policy.
+      customer authorization и safe interaction policy.
 - [ ] Visual regression с approved baselines и dynamic-region handling.
 - [ ] Platform-specific adapters только там, где generic rules стабильно не
-  покрывают важный кейс.
+      покрывают важный кейс.
 - [ ] AI grouping и remediation suggestions только поверх deterministic
-  evidence.
+      evidence.
 - [ ] PLP, search, cart, checkout и mobile apps после повторяемого спроса на
-  коммерческий PDP SaaS.
+      коммерческий PDP SaaS.
 
 ---
 
@@ -522,15 +565,15 @@ support рассматривается только как отдельный ev
 
 # Decision Log
 
-| Decision | Rationale | Consequence |
-| --- | --- | --- |
-| Deterministic rules are the default | The product context and current engine already use explainable checks where ordinary code is reliable. | AI may assist evidence, never replace a check without a separate product decision. |
-| Benchmark precedes rule expansion | Manual calibration is useful but cannot prevent regressions. | Each new or changed rule needs executable cases before it ships. |
-| Findings carry stable IDs | `Finding` already exposes `id` and `ruleId`; future comparison depends on them. | Do not rename or reuse persisted rule IDs; make compatibility explicit. |
-| One rule returns one Finding | This is the repository audit contract and makes evidence/recommendations specific. | Avoid aggregate quality-score findings that hide independent defects. |
-| Browser execution is a security boundary | The runner navigates untrusted public URLs and already applies SSRF/resource limits. | Hosted workers must be isolated; UI must not call Playwright directly. |
-| Local filesystem and global lock are MVP-only | They match the single-process implementation but do not persist or scale safely. | Replace them only in Phase 4, with tenant and worker boundaries. |
-| Live stores are calibration, not CI fixtures | The matrix includes anti-bot exclusions and changing third-party pages. | CI uses committed local cases; calibration stays separately documented. |
+| Decision                                      | Rationale                                                                                              | Consequence                                                                        |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------- |
+| Deterministic rules are the default           | The product context and current engine already use explainable checks where ordinary code is reliable. | AI may assist evidence, never replace a check without a separate product decision. |
+| Benchmark precedes rule expansion             | Manual calibration is useful but cannot prevent regressions.                                           | Each new or changed rule needs executable cases before it ships.                   |
+| Findings carry stable IDs                     | `Finding` already exposes `id` and `ruleId`; future comparison depends on them.                        | Do not rename or reuse persisted rule IDs; make compatibility explicit.            |
+| One rule returns one Finding                  | This is the repository audit contract and makes evidence/recommendations specific.                     | Avoid aggregate quality-score findings that hide independent defects.              |
+| Browser execution is a security boundary      | The runner navigates untrusted public URLs and already applies SSRF/resource limits.                   | Hosted workers must be isolated; UI must not call Playwright directly.             |
+| Local filesystem and global lock are MVP-only | They match the single-process implementation but do not persist or scale safely.                       | Replace them only in Phase 4, with tenant and worker boundaries.                   |
+| Live stores are calibration, not CI fixtures  | The matrix includes anti-bot exclusions and changing third-party pages.                                | CI uses committed local cases; calibration stays separately documented.            |
 
 ---
 
@@ -557,8 +600,9 @@ Metrics measure product trust and customer value, not raw scan volume.
 
 # Current Focus
 
-**Документировать поддерживаемое Node/pnpm/Playwright окружение.**
+**Провести формальную Gate to SaaS review: сопоставить каждый planning gate с
+проверяемым evidence и явно зафиксировать passed или blocked.**
 
-Clean-checkout CI gate теперь описан одним workflow; следующий незавершённый
-шаг Phase 1 — зафиксировать поддерживаемые runtime и browser prerequisites,
-чтобы failures приложения были явно отделены от ограничений среды.
+Hosted security design boundary документирована без реализации infrastructure.
+Следующий шаг — проверить все planning gates как единое решение и не начинать
+Phase 3 или Phase 4 до явного результата review.

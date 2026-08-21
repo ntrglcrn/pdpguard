@@ -161,7 +161,9 @@ export const brokenImagesRule: AuditRule = async (context) => {
   const broken = images.filter(
     (image) =>
       image.visible &&
-      (!image.hasSrc || (image.complete && image.naturalWidth === 0)),
+      image.hasSrc &&
+      image.complete &&
+      image.naturalWidth === 0,
   );
 
   return finding({
@@ -176,7 +178,7 @@ export const brokenImagesRule: AuditRule = async (context) => {
     status: broken.length === 0 ? "passed" : "failed",
     evidence:
       broken.length === 0
-        ? ["All visible images have a source and non-zero natural width."]
+        ? ["No visible image with a source has zero natural width."]
         : broken
             .slice(0, 5)
             .map((image) => image.src || "Visible image has an empty src."),
