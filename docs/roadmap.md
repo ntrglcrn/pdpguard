@@ -78,8 +78,12 @@ AI может помогать группировать или объяснят�
 - [x] Минимальная hosted security architecture документирована в
       `docs/hosted-security-boundary.md`; её worker, tenant и artifact controls
       являются future requirements и ещё не реализованы.
-- [ ] Нет accounts, workspaces, persistence, очереди, isolated workers,
-      catalog scanning, API, exports и integrations.
+- [x] Определена минимальная in-memory model Workspace → Store → Audit Run →
+      Finding / Artifact reference с owner/member boundary и проверкой полного
+      ownership chain в server-side service. Это foundation contract, не
+      durable hosted persistence и не authentication system.
+- [ ] Нет authenticated accounts, durable persistence, очереди, isolated
+      workers, catalog scanning, public SaaS API, exports и integrations.
 
 Технические долги, подтверждённые текущей проверкой:
 
@@ -381,9 +385,10 @@ product.
 
 **Tasks:**
 
-- [ ] Определить минимальную persistence model: workspace, member, store,
+- [x] Определить минимальную persistence model: workspace, member, store,
       audit run, finding и screenshot reference. **Priority:** Critical.
-      **Impact:** заменяет отсутствие history минимальной коммерческой моделью.
+      **Impact:** закрепляет ownership contract для минимальной коммерческой
+      модели; durable database и authentication остаются следующей задачей.
 - [ ] Добавить authentication и workspace authorization до сохранения customer
       URLs/results. **Priority:** Critical. **Impact:** создаёт tenant boundary.
 - [ ] Изолировать browser workers и заменить global lock durable job state.
