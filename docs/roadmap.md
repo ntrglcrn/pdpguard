@@ -58,16 +58,17 @@ AI может помогать группировать или объяснят�
       `domcontentloaded` ждёт bounded structural readiness перед rules.
 - [x] URL проходят DNS-проверку: локальные, private, reserved и URL с
       credentials отклоняются до навигации и при запросах страницы.
-- [x] Есть типизированные `Finding`, summary и девять независимых правил:
+- [x] Есть типизированные `Finding`, summary и десять независимых правил:
       availability, title, canonical URL, robots indexing, product image, broken
-      images, visible price, purchase CTA и Product/ProductGroup JSON-LD.
+      images, product image alt text, visible price, purchase CTA и
+      Product/ProductGroup JSON-LD.
 - [x] Есть unit-тесты URL safety, summary, price/CTA matching и JSON-LD, а
       также browser fixtures для текущих эвристик и delayed/permanent/immediate
       readiness states. В `docs/calibration.md` есть ручная калибровка 25 live
       URL (23 включены, два anti-bot случая исключены).
 - [x] Скриншоты временно хранятся локально до 24 часов.
 - [x] Есть исполнимый benchmark с локальным manifest, positive/negative
-      controls для девяти правил, 13 именованными purchase CTA regressions,
+      controls для десяти правил, 13 именованными purchase CTA regressions,
       regressions для lazy image placeholder, robots indexing directives и
       permanent loader execution state и командой `pnpm benchmark`.
 - [x] Есть один GitHub Actions workflow для clean-checkout verification:
@@ -349,6 +350,9 @@ recommendation, benchmark cases и calibration evidence. Critical использ
 - [x] Добавить deterministic alt text check для выбранного primary product
       image, используя existing image snapshot. **Priority:** Medium. **Impact:**
       даёт accessibility coverage без нового browser flow.
+- [x] Усилить visible product price для `undefined`, `NaN` и zero, сохранив
+      legitimate `Free`. **Priority:** High. **Impact:** invalid storefront
+      values не проходят как наблюдаемая цена.
 - [ ] Добавить lazy-load readiness для product image после отдельной
       calibration. **Priority:** Medium. **Impact:** расширяет image delivery
       coverage без смешения с alt text check.
@@ -629,6 +633,6 @@ Metrics measure product trust and customer value, not raw scan volume.
 
 # Current Focus
 
-**Deterministic alt text check для уже выбранного primary product image
-завершён: он использует existing image snapshot и не смешивается с общей
-lazy-load readiness. Следующий Engine Current Focus не выбран.**
+**FR-2 завершён: `product-price` отклоняет `undefined`, `NaN` и zero, сохраняет
+legitimate `Free` и закреплён positive/negative benchmark controls. Следующий
+Engine Current Focus не выбран.**

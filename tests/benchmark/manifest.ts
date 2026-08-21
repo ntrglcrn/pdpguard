@@ -130,6 +130,22 @@ export const benchmarkCases = [
     html: "<main><h1>Silk Shirt</h1><button>Add to cart</button></main>",
     expected: { ruleId: "product-price", status: "failed" },
   },
+  ...["$undefined", "$NaN", "$0.00"].map((price): BenchmarkCase => ({
+    name: `product-price/positive-control/invalid-${price.slice(1).toLowerCase().replace(".", "-")}`,
+    control: "positive",
+    html: `<main><p class="price">${price}</p></main>`,
+    expected: { ruleId: "product-price", status: "failed" },
+  })),
+  {
+    name: "product-price/negative-control/free",
+    control: "negative",
+    html: '<main><p class="price">Free</p></main>',
+    expected: {
+      ruleId: "product-price",
+      status: "passed",
+      evidenceIncludes: "Free",
+    },
+  },
   {
     name: "purchase-cta/positive-control/disabled-cta",
     control: "positive",

@@ -31,6 +31,7 @@ export const VARIANT_GATE_LABELS = [
 
 const PRICE_PATTERN =
   /(?:[$€£₸]\s*\d[\d\s.,]*|\d[\d\s.,]*\s*(?:[$€£₸]|(?:USD|EUR|GBP|KZT)\b)|\b(?:USD|EUR|GBP|KZT)\s*\d[\d\s.,]*)/iu;
+const FREE_PRICE_PATTERN = /^free$/iu;
 
 export function normalizeLabel(value: string): string {
   return value.replace(/\s+/g, " ").trim().toLocaleLowerCase();
@@ -53,13 +54,11 @@ export function matchesVariantGate(value: string): boolean {
 export function findVisiblePriceText(texts: string[]): string | null {
   for (const text of texts) {
     const normalized = text.replace(/\s+/g, " ").trim();
-    if (
-      normalized.length > 0 &&
-      normalized.length <= 80 &&
-      PRICE_PATTERN.test(normalized)
-    ) {
-      return normalized.match(PRICE_PATTERN)?.[0] ?? normalized;
-    }
+    if (normalized.length === 0 || normalized.length > 80) continue;
+    if (FREE_PRICE_PATTERN.test(normalized)) return normalized;
+
+    const price = normalized.match(PRICE_PATTERN)?.[0];
+    if (price && /[1-9]/.test(price)) return price;
   }
   return null;
 }

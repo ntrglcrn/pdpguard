@@ -16,13 +16,23 @@ describe("price detection", () => {
     "25 EUR",
     "GBP 50",
     "KZT 12 000",
+    "Free",
   ])("detects %s", (value) =>
     expect(findVisiblePriceText([value])).toBeTruthy(),
   );
 
+  it.each(["$undefined", "$NaN", "$0", "$0.00", "0 EUR"])(
+    "rejects invalid price %s",
+    (value) => expect(findVisiblePriceText([value])).toBeNull(),
+  );
+
   it("does not confuse plain numbers with a price", () => {
     expect(
-      findVisiblePriceText(["SKU 12345", "Available in 4 sizes"]),
+      findVisiblePriceText([
+        "SKU 12345",
+        "Available in 4 sizes",
+        "Free shipping",
+      ]),
     ).toBeNull();
   });
 });

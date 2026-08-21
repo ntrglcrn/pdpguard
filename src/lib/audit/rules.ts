@@ -391,8 +391,8 @@ export const productPriceRule: AuditRule = async ({ page }) => {
     ruleId: "product-price",
     title: "Visible product price",
     description: price
-      ? "A visible currency-formatted price was found."
-      : "No visible currency-formatted price was found.",
+      ? "A valid visible product price was found."
+      : "No valid visible product price was found.",
     severity: price ? "info" : "warning",
     status: price ? "passed" : "failed",
     evidence: [
