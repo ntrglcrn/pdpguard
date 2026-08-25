@@ -4,6 +4,7 @@
 
 import { FormEvent, useMemo, useState } from "react";
 
+import { failuresFirst, findingPresentation } from "@/app/finding-presentation";
 import type { AuditResult, Finding } from "@/domain/audit";
 
 type ViewState = "initial" | "scanning" | "success" | "error";
@@ -15,6 +16,9 @@ const filters: { id: Filter; label: string }[] = [
   { id: "warning", label: "Warnings" },
   { id: "passed", label: "Passed" },
 ];
+
+const DEMO_PRODUCT_URL =
+  "https://kazakhyuvelir.kz/product/bracelet-invictus-m064456-0003";
 
 function clientValidation(value: string): string | null {
   if (!value.trim()) return "Enter a product page URL.";
@@ -41,6 +45,7 @@ function statusLabel(result: AuditResult) {
 function FindingCard({ finding }: { finding: Finding }) {
   const tone = finding.status === "passed" ? "passed" : finding.severity;
   const label = finding.status === "passed" ? "Passed" : finding.severity;
+  const presentation = findingPresentation(finding.ruleId);
   return (
     <article className="finding-card">
       <div className="finding-heading">
@@ -51,8 +56,14 @@ function FindingCard({ finding }: { finding: Finding }) {
           {label}
         </span>
         <h3>{finding.title}</h3>
+        <span className="category-badge">{presentation.category}</span>
       </div>
       <p className="finding-description">{finding.description}</p>
+      {finding.status === "failed" && (
+        <p className="finding-impact">
+          <strong>Why it matters:</strong> {presentation.impact}
+        </p>
+      )}
       <div className="finding-grid">
         <div>
           <h4>Evidence</h4>
@@ -80,7 +91,8 @@ export default function AuditWorkspace() {
   const [filter, setFilter] = useState<Filter>("all");
 
   const visibleFindings = useMemo(() => {
-    if (!result || filter === "all") return result?.findings ?? [];
+    if (!result) return [];
+    if (filter === "all") return failuresFirst(result.findings);
     if (filter === "passed")
       return result.findings.filter((item) => item.status === "passed");
     return result.findings.filter(
@@ -133,16 +145,16 @@ export default function AuditWorkspace() {
           </span>
           <span>PDP Guard</span>
         </a>
-        <span className="local-badge">Local MVP</span>
+        <span className="local-badge">Development preview</span>
       </header>
 
       <div className="workspace" id="top">
         <section className="intro" aria-labelledby="page-title">
-          <p className="eyebrow">Mobile product page audit</p>
-          <h1 id="page-title">Find purchase blockers before shoppers do.</h1>
+          <p className="eyebrow">Deterministic ecommerce quality check</p>
+          <h1 id="page-title">Check product page quality with evidence.</h1>
           <p>
-            Check one public product page for missing prices, images, purchase
-            controls and structured product data.
+            Run reproducible browser checks for product data, purchase controls,
+            accessibility, media and discoverability.
           </p>
         </section>
 
@@ -197,6 +209,17 @@ export default function AuditWorkspace() {
                 Only public HTTP and HTTPS pages are allowed.
               </p>
             )}
+            <button
+              className="demo-preset"
+              type="button"
+              disabled={state === "scanning"}
+              onClick={() => {
+                setUrl(DEMO_PRODUCT_URL);
+                setFieldError(null);
+              }}
+            >
+              Use Kazakhyuvelir demo product
+            </button>
           </form>
 
           {state === "scanning" && (
@@ -271,6 +294,25 @@ export default function AuditWorkspace() {
                 <span>Passed</span>
                 <strong>{result.summary.counts.passed}</strong>
               </div>
+            </div>
+
+            <div className="audit-context" aria-label="Audit context">
+              <div>
+                <strong>{result.findings.length}</strong>
+                <span>deterministic checks</span>
+              </div>
+              <div>
+                <strong>{(result.durationMs / 1_000).toFixed(1)}s</strong>
+                <span>audit duration</span>
+              </div>
+              <div>
+                <strong>
+                  {result.metadata.viewport.width} ×{" "}
+                  {result.metadata.viewport.height}
+                </strong>
+                <span>viewport</span>
+              </div>
+              <p>Deterministic audit · Real browser · Reproducible evidence</p>
             </div>
 
             <div className="result-layout">
