@@ -13,17 +13,41 @@
   --text: #172033;
   --text-muted: #637087;
   --border: #dfe5ee;
-  --border-strong: #c8d1df;
+  --border-strong: #7a8aa2;
   --accent: #475ed8;
   --accent-hover: #394ec2;
   --accent-soft: #eef0ff;
-  --critical: #c93c48;
+  --critical: #bd2433;
   --critical-soft: #fff0f1;
   --warning: #a15c06;
   --warning-soft: #fff7e8;
   --success: #18794e;
   --success-soft: #eaf8f1;
-  --focus: rgba(71, 94, 216, 0.28);
+  --focus: var(--accent);
+  /* Semantic application tokens. Keep --accent and --border product-owned. */
+  --surface-raised: var(--surface);
+  --interactive: var(--surface-subtle);
+  --interactive-hover: var(--surface-inset);
+  --shadcn-accent: var(--interactive);
+  --shadcn-accent-foreground: var(--text);
+  --severity-critical: var(--critical);
+  --severity-critical-soft: var(--critical-soft);
+  --severity-warning: var(--warning);
+  --severity-warning-soft: var(--warning-soft);
+  --severity-info: var(--accent);
+  --severity-info-soft: var(--accent-soft);
+  --passed: var(--success);
+  --passed-soft: var(--success-soft);
+  --font-sans:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --font-heading: var(--font-sans);
+  --type-display: clamp(2rem, 5vw, 3.5rem);
+  --type-title: 1.125rem;
+  --type-body: 1rem;
+  --type-compact: 0.875rem;
+  --type-meta: 0.75rem;
   --shadow:
     0 1px 2px rgba(23, 32, 51, 0.05), 0 14px 36px rgba(23, 32, 51, 0.07);
   --background: var(--canvas);
@@ -40,6 +64,7 @@
   --muted-foreground: var(--text-muted);
   --accent-foreground: white;
   --destructive: var(--critical);
+  --destructive-soft: var(--critical-soft);
   --input: var(--border-strong);
   --ring: var(--accent);
   --radius: 0.75rem;
@@ -55,7 +80,7 @@
     --text: #f0f3f8;
     --text-muted: #a4afc2;
     --border: #29344a;
-    --border-strong: #3a4760;
+    --border-strong: #60718d;
     --accent: #8292f4;
     --accent-hover: #97a4f8;
     --accent-soft: #222b51;
@@ -65,7 +90,8 @@
     --warning-soft: #372a19;
     --success: #65d3a1;
     --success-soft: #173329;
-    --focus: rgba(130, 146, 244, 0.35);
+    --focus: var(--accent);
+    --primary-foreground: #0d1220;
     --shadow:
       inset 0 1px rgba(255, 255, 255, 0.035), 0 18px 42px rgba(0, 0, 0, 0.23);
   }
@@ -81,15 +107,8 @@ body {
   margin: 0;
   background: var(--canvas);
   color: var(--text);
-  font-family:
-    Inter,
-    ui-sans-serif,
-    system-ui,
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    sans-serif;
-  font-size: 1rem;
+  font-family: var(--font-sans);
+  font-size: var(--type-body);
   line-height: 1.5;
 }
 button,
@@ -135,7 +154,7 @@ a {
   place-items: center;
   border-radius: 10px;
   background: var(--accent);
-  color: white;
+  color: var(--primary-foreground);
   font-size: 0.9rem;
 }
 .local-badge,
@@ -169,7 +188,7 @@ a {
 .intro h1 {
   max-width: 720px;
   margin: 0;
-  font-size: clamp(2rem, 5vw, 3.5rem);
+  font-size: var(--type-display);
   line-height: 1.05;
   letter-spacing: -0.045em;
 }
@@ -203,7 +222,7 @@ a {
 .findings-toolbar h2,
 .screenshot-panel h2 {
   margin: 0;
-  font-size: 1.125rem;
+  font-size: var(--type-title);
   line-height: 1.3;
   letter-spacing: -0.015em;
 }
@@ -212,19 +231,19 @@ a {
 .screenshot-panel > div:first-child > p:last-child {
   margin: 5px 0 0;
   color: var(--text-muted);
-  font-size: 0.875rem;
+  font-size: var(--type-compact);
 }
 form label {
   display: block;
   margin-bottom: 8px;
-  font-size: 0.875rem;
+  font-size: var(--type-compact);
   font-weight: 650;
 }
 .input-row {
   display: flex;
   gap: 10px;
 }
-input {
+.audit-url-input {
   min-width: 0;
   min-height: 48px;
   flex: 1;
@@ -238,20 +257,20 @@ input {
     border-color 160ms,
     box-shadow 160ms;
 }
-input::placeholder {
+.audit-url-input::placeholder {
   color: color-mix(in srgb, var(--text-muted) 72%, transparent);
 }
-input:focus-visible {
+.audit-url-input:focus-visible {
   border-color: var(--accent);
-  box-shadow: 0 0 0 4px var(--focus);
+  box-shadow: 0 0 0 3px var(--focus);
 }
-input[aria-invalid="true"] {
+.audit-url-input[aria-invalid="true"] {
   border-color: var(--critical);
 }
 button {
   cursor: pointer;
 }
-.input-row button {
+.audit-submit {
   display: inline-flex;
   min-height: 48px;
   align-items: center;
@@ -260,26 +279,28 @@ button {
   border: 0;
   border-radius: 12px;
   background: var(--accent);
-  color: white;
+  color: var(--primary-foreground);
   font-weight: 700;
   padding: 0 22px;
   transition:
     background 160ms,
     transform 160ms;
 }
-.input-row button:hover:not(:disabled) {
+.audit-submit:hover:not(:disabled) {
   background: var(--accent-hover);
 }
-.input-row button:active:not(:disabled) {
+.audit-submit:active:not(:disabled) {
   transform: translateY(1px);
 }
-button:focus-visible,
-a:focus-visible {
+.brand:focus-visible,
+.audit-submit:focus-visible,
+.filters button:focus-visible,
+.secondary-button:focus-visible {
   outline: 3px solid var(--focus);
   outline-offset: 2px;
 }
-button:disabled,
-input:disabled {
+.audit-submit:disabled,
+.audit-url-input:disabled {
   cursor: not-allowed;
   opacity: 0.65;
 }
@@ -292,14 +313,14 @@ input:disabled {
   color: var(--text-muted);
 }
 .field-error {
-  color: var(--critical);
+  color: var(--severity-critical);
   font-weight: 550;
 }
 .spinner {
   width: 16px;
   height: 16px;
-  border: 2px solid rgba(255, 255, 255, 0.45);
-  border-top-color: white;
+  border: 2px solid color-mix(in srgb, currentColor 45%, transparent);
+  border-top-color: currentColor;
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
@@ -325,7 +346,7 @@ input:disabled {
 .error-state p {
   margin: 2px 0 0;
   color: var(--text-muted);
-  font-size: 0.875rem;
+  font-size: var(--type-compact);
 }
 .scan-pulse {
   width: 10px;
@@ -345,8 +366,8 @@ input:disabled {
 .error-state {
   display: block;
   border: 1px solid color-mix(in srgb, var(--critical) 30%, transparent);
-  background: var(--critical-soft);
-  color: var(--critical);
+  background: var(--severity-critical-soft);
+  color: var(--severity-critical);
 }
 
 .results {
@@ -378,16 +399,16 @@ input:disabled {
   font-weight: 800;
 }
 .result-critical {
-  background: var(--critical-soft);
-  color: var(--critical);
+  background: var(--severity-critical-soft);
+  color: var(--severity-critical);
 }
 .result-warning {
   background: var(--warning-soft);
-  color: var(--warning);
+  color: var(--severity-warning);
 }
 .result-passed {
   background: var(--success-soft);
-  color: var(--success);
+  color: var(--passed);
 }
 .result-meta {
   display: grid;
@@ -447,13 +468,13 @@ input:disabled {
   letter-spacing: -0.03em;
 }
 .summary-critical strong {
-  color: var(--critical);
+  color: var(--severity-critical);
 }
 .summary-warning strong {
-  color: var(--warning);
+  color: var(--severity-warning);
 }
 .summary-passed strong {
-  color: var(--success);
+  color: var(--passed);
 }
 
 .result-layout {
@@ -525,20 +546,20 @@ input:disabled {
   text-transform: capitalize;
 }
 .status-critical {
-  background: var(--critical-soft);
-  color: var(--critical);
+  background: var(--severity-critical-soft);
+  color: var(--severity-critical);
 }
 .status-warning {
-  background: var(--warning-soft);
-  color: var(--warning);
+  background: var(--severity-warning-soft);
+  color: var(--severity-warning);
 }
 .status-info {
-  background: var(--accent-soft);
-  color: var(--accent);
+  background: var(--severity-info-soft);
+  color: var(--severity-info);
 }
 .status-passed {
-  background: var(--success-soft);
-  color: var(--success);
+  background: var(--passed-soft);
+  color: var(--passed);
 }
 .finding-description {
   margin: 10px 0 14px;
@@ -561,6 +582,7 @@ input:disabled {
   margin: 0;
   color: var(--text-muted);
   font-size: 0.8rem;
+  overflow-wrap: anywhere;
 }
 .finding-grid ul {
   padding-left: 17px;
@@ -678,8 +700,14 @@ input:disabled {
   --color-input: var(--input);
   --color-border: var(--border);
   --color-destructive: var(--destructive);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-accent: var(--accent);
+  --color-accent-foreground: var(--shadcn-accent-foreground);
+  --color-accent: var(--shadcn-accent);
+  --color-interactive: var(--interactive);
+  --color-interactive-hover: var(--interactive-hover);
+  --color-severity-critical: var(--severity-critical);
+  --color-severity-warning: var(--severity-warning);
+  --color-severity-info: var(--severity-info);
+  --color-passed: var(--passed);
   --color-muted-foreground: var(--muted-foreground);
   --color-muted: var(--muted);
   --color-secondary-foreground: var(--secondary-foreground);

@@ -2,7 +2,7 @@
 
 /* eslint-disable @next/next/no-img-element */
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import type { AuditResult, Finding } from "@/domain/audit";
 
@@ -78,6 +78,13 @@ export default function AuditWorkspace() {
   const [state, setState] = useState<ViewState>("initial");
   const [result, setResult] = useState<AuditResult | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
+  const feedbackRef = useRef<HTMLDivElement>(null);
+  const resultsTitleRef = useRef<HTMLHeadingElement>(null);
+
+  useEffect(() => {
+    if (state === "success") resultsTitleRef.current?.focus();
+    if (state === "scanning" || state === "error") feedbackRef.current?.focus();
+  }, [state]);
 
   const visibleFindings = useMemo(() => {
     if (!result || filter === "all") return result?.findings ?? [];
@@ -162,6 +169,7 @@ export default function AuditWorkspace() {
             <label htmlFor="product-url">Product page URL</label>
             <div className="input-row">
               <input
+                className="audit-url-input"
                 id="product-url"
                 name="url"
                 type="url"
@@ -177,7 +185,11 @@ export default function AuditWorkspace() {
                   if (fieldError) setFieldError(null);
                 }}
               />
-              <button type="submit" disabled={state === "scanning"}>
+              <button
+                className="audit-submit"
+                type="submit"
+                disabled={state === "scanning"}
+              >
                 {state === "scanning" ? (
                   <>
                     <span className="spinner" aria-hidden="true" /> Auditing
@@ -200,7 +212,13 @@ export default function AuditWorkspace() {
           </form>
 
           {state === "scanning" && (
-            <div className="scan-state" role="status" aria-live="polite">
+            <div
+              ref={feedbackRef}
+              className="scan-state"
+              role="status"
+              aria-live="polite"
+              tabIndex={-1}
+            >
               <span className="scan-pulse" aria-hidden="true" />
               <div>
                 <strong>Opening and checking the mobile page…</strong>
@@ -213,7 +231,12 @@ export default function AuditWorkspace() {
           )}
 
           {state === "error" && error && (
-            <div className="error-state" role="alert">
+            <div
+              ref={feedbackRef}
+              className="error-state"
+              role="alert"
+              tabIndex={-1}
+            >
               <strong>Audit could not be completed</strong>
               <p>{error}</p>
             </div>
@@ -223,7 +246,11 @@ export default function AuditWorkspace() {
         {state === "success" && result && (
           <section className="results" aria-labelledby="results-title">
             <div className="result-header">
-              <div className="result-title-row">
+              <div
+                className="result-title-row"
+                role="status"
+                aria-live="polite"
+              >
                 <span
                   className={`result-status result-${result.summary.status}`}
                 >
@@ -231,7 +258,9 @@ export default function AuditWorkspace() {
                 </span>
                 <div>
                   <p className="eyebrow">Audit complete</p>
-                  <h2 id="results-title">{statusLabel(result)}</h2>
+                  <h2 id="results-title" ref={resultsTitleRef} tabIndex={-1}>
+                    {statusLabel(result)}
+                  </h2>
                 </div>
               </div>
               <dl className="result-meta">
@@ -279,8 +308,16 @@ export default function AuditWorkspace() {
                   <div>
                     <h2>Findings</h2>
                     <p>Deterministic checks with evidence and next steps.</p>
+                    <p className="sr-only" aria-live="polite">
+                      {visibleFindings.length} finding
+                      {visibleFindings.length === 1 ? "" : "s"} shown.
+                    </p>
                   </div>
-                  <div className="filters" aria-label="Filter findings">
+                  <div
+                    className="filters"
+                    role="group"
+                    aria-label="Filter findings"
+                  >
                     {filters.map((item) => (
                       <button
                         key={item.id}
