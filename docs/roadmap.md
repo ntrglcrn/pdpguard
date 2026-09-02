@@ -13,8 +13,7 @@ regular workflow for a store.
 
 ## Evidence-based current state
 
-`main` at `6dc27cb7c4fa86f8bc57f7730f0924023e3bc3ec` has the local SaaS
-frontend v1. A local bootstrap creates a local session and workspace; users can
+`main` has the local SaaS frontend v1. A local bootstrap creates a local session and workspace; users can
 add a public Store, run one same-origin PDP audit, and view persisted runs,
 findings, and authorized screenshots. SQLite stores the ownership chain
 Workspace → Store → Audit Run → Finding / Artifact. The deterministic audit and

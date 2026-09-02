@@ -1,10 +1,14 @@
 # PDP Guard agent instructions
 
-## Project shape
+## Fast orientation
 
-- Keep this a single Next.js application.
-- UI and routes live in `src/app`; audit contracts in `src/domain`; audit code and rules in `src/lib/audit`.
-- URL safety and screenshot storage remain separate trust-boundary modules.
+- Read `.codex/project-context.md` and the matching `pdp-guard` skill reference
+  before unfamiliar or cross-cutting work.
+- `docs/prd/pdp-guard-v2.md` and `docs/roadmap.md` are the source of truth for
+  product direction. Read them only when scope, priority, or milestone work
+  depends on them.
+- Keep this a single Next.js app: UI/routes in `src/app`, contracts in
+  `src/domain`, audit code in `src/lib/audit`.
 
 ## Commands
 
@@ -14,7 +18,7 @@
 - `pnpm test` — unit and local Playwright fixture tests
 - `pnpm build` — production build
 
-## Architecture rules
+## Non-negotiable boundaries
 
 - UI must never import or call Playwright directly.
 - Keep audit rules deterministic and independent through the `AuditRule` contract.
@@ -25,7 +29,10 @@
 
 ## Before finishing
 
-Run `pnpm lint`, `pnpm typecheck`, `pnpm test`, and `pnpm build`. For network, browser, route, or storage changes, also review SSRF, resource exhaustion, path traversal, and error disclosure risks.
+Use `.codex/skills/pdp-guard/references/development.md` for proportional
+verification. Milestone-level changes require the full gate; network, browser,
+route, or storage changes also require review of SSRF, resource exhaustion,
+path traversal, and error disclosure risks.
 
 <!-- BEGIN:nextjs-agent-rules -->
 

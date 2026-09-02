@@ -16,8 +16,8 @@ to the hosted design, but they are not a hosted security boundary.
 | URL safety        | HTTP(S)-only parsing, credential rejection, hostname/DNS validation and private/local/reserved IP blocking run before navigation and through Playwright request interception. Main-frame redirects are revalidated and capped at five. | Preserve all application checks and add infrastructure egress enforcement at connection time so DNS rebinding or a browser bypass cannot reach internal networks.                        |
 | Browser network   | Service workers are blocked, WebSockets are closed, downloads are disabled and intercepted HTTP(S) requests are validated.                                                                                                             | A deny-by-default worker network policy permits only validated public HTTP(S) destinations and required control-plane/artifact endpoints.                                                |
 | Time and size     | The audit has a 45-second overall timeout, 30-second navigation timeout, 10-second default operation timeout, five-redirect limit, 390 × 844 viewport and 20,000 CSS-pixel screenshot-height limit.                                    | Keep per-job configurable limits and add enforced CPU, memory, request-count, response-byte and encoded-artifact budgets. Values need measurement before production defaults are chosen. |
-| Screenshots       | The local MVP route still serves temporary PNG files without authentication. The SaaS foundation separately persists bounded artifact bytes and verifies their complete workspace/run ownership chain before reads.                    | Move the protected artifact contract to durable object storage with enforced retention/deletion. Local filesystem paths and possession of an artifact ID are not authorization.          |
-| Audit data        | The SaaS foundation persists workspaces, stores, run state and deterministic results in single-node SQLite. It is not wired to the local audit route or a hosted worker.                                                               | Persist only the tenant-owned run record, deterministic findings, bounded evidence, metadata and artifact references required by the product.                                            |
+| Screenshots       | The local SaaS foundation persists bounded artifact bytes and verifies their complete workspace/run ownership chain before reads.                                                                                                      | Move the protected artifact contract to durable object storage with enforced retention/deletion. Local filesystem paths and possession of an artifact ID are not authorization.          |
+| Audit data        | The SaaS foundation persists workspaces, stores, run state and deterministic results in single-node SQLite; a synchronous Quick Audit uses that ownership chain.                                                                       | Persist only the tenant-owned run record, deterministic findings, bounded evidence, metadata and artifact references required by the product.                                            |
 | Failure handling  | Unsafe URLs, timeout and oversized pages have bounded client errors; other failures return a generic 502 response.                                                                                                                     | Durable job states, idempotent completion, bounded retry/cancellation and sanitized customer errors prevent one attempt from affecting another or exposing infrastructure details.       |
 | Tenant boundary   | Hashed, expiring sessions and owner/member checks protect the SaaS service model; scoped worker capabilities cannot update another run. No external identity flow or public SaaS routes exist yet.                                     | Every operation resolves and authorizes the full Workspace → Store → Audit Run → Finding / Screenshot ownership chain.                                                                   |
 
@@ -267,10 +267,9 @@ The current-state claims above were checked against:
   current time/screenshot limits;
 - `src/lib/url-safety.ts` and `tests/url-safety.test.ts` for URL, DNS and IP
   validation;
-- `src/lib/screenshot-storage.ts` and `src/app/api/screenshots/[id]/route.ts`
-  for local artifact storage and unauthenticated retrieval;
-- `src/app/api/audits/route.ts` for request bounds, process-local concurrency
-  and sanitized API failures;
+- `src/lib/workspace-service.ts`, `src/lib/audit-execution.ts`, and
+  `src/app/api/artifacts/[id]/route.ts` for protected artifact ownership,
+  process-local concurrency, and failure mapping;
 - `src/domain/audit.ts` for the current result/data contract.
 
 `tests/workspace-service.test.ts` covers session validation/revocation,

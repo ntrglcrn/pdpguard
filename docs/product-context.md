@@ -18,7 +18,20 @@ PDP Guard translates technical checks into plain ecommerce findings: what failed
 
 ## Current scope
 
-Stage 1 audits one user-provided public PDP per run in a mobile browser. It checks page availability, title, canonical URL, robots indexing directives, product imagery, broken images, visible price, purchase CTA, and Product/ProductGroup JSON-LD, then returns a screenshot and report.
+PDP Guard has a local SaaS foundation: local bootstrap session, workspace and
+Store persistence, same-origin single-PDP Quick Audits, persisted runs/findings,
+and authorized screenshot artifacts. Its primary workflow is Store → Catalog
+Discovery → PDP Inventory → Store Audit → Issues → Monitoring; Quick Audit is
+secondary.
+
+Catalog Discovery/PDP Inventory, Store Audit, issue aggregation, monitoring,
+and hosted production controls are not implemented. [The roadmap](./roadmap.md)
+maintains current priority and status; [the PRD](./prd/pdp-guard-v2.md) defines
+full product direction.
+
+Quick Audit checks page availability, title, canonical URL, robots indexing
+directives, product imagery, broken images, visible price, purchase CTA, and
+Product/ProductGroup JSON-LD, then returns evidence and a protected screenshot.
 
 The `robots-indexing` check follows [Google Search's documented HTML behavior](https://developers.google.com/search/docs/crawling-indexing/robots-meta-tag): it combines applicable `robots` and `googlebot` meta directives with the final HTML response's `X-Robots-Tag` values, treats `none` as `noindex, nofollow`, and applies the more restrictive directive when documented rules conflict. It does not inspect `robots.txt`, Search Console, crawl budget, actual index status, or the reason a store declares `noindex`.
 
@@ -26,7 +39,9 @@ The `structured-product-data` check validates the minimum offer structure releva
 
 Known limitations: the check reads JSON-LD only, does not resolve cross-block `@id` references, validate ISO currency membership, compare structured and visible prices, verify inventory, interact with variants, or predict Google eligibility. When several applicable offers exist, one complete price/currency pair is sufficient; incomplete sibling offers do not create a warning without evidence that they represent the selected PDP state.
 
-The current implementation has no accounts, persistence, catalog discovery, checkout interaction, third-party integrations, or AI.
+The current implementation has local sessions/RBAC and persistence, but no
+Catalog Discovery, inventory, Store Audit, monitoring, hosted identity,
+third-party integrations, or AI decision-making.
 
 ## Product constraints
 
