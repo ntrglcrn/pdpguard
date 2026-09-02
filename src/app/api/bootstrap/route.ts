@@ -17,7 +17,11 @@ export async function GET(request: Request) {
     principal = authenticateAppRequest(request);
   } catch (error) {
     if (!(error instanceof AuthorizationError)) throw error;
-    const session = service.issueSession("local-user");
+    const session = service.issueSession(
+      "local-user",
+      undefined,
+      { secureCookie: false },
+    );
     principal = service.authenticateSession(session.token);
     sessionCookie = session.cookie;
   }

@@ -62,6 +62,25 @@ function result(): AuditResult {
 }
 
 describe("WorkspaceService", () => {
+  it("keeps production sessions Secure and supports an explicit local bootstrap cookie", () => {
+    const { value } = service();
+    const production = value.issueSession("production-user");
+    const local = value.issueSession("local-user", undefined, {
+      secureCookie: false,
+    });
+
+    expect(production.cookie).toContain("; Secure;");
+    expect(local.cookie).not.toContain("; Secure;");
+    expect(
+      value.authenticateRequest(
+        new Request("http://localhost:3000/stores", {
+          headers: { cookie: local.cookie },
+        }),
+      ),
+    ).toMatchObject({ kind: "user", userId: "local-user" });
+    value.close();
+  });
+
   it("persists authenticated ownership, completed runs and protected artifacts", async () => {
     const { databasePath, value } = service();
     const ownerSession = value.issueSession("owner");

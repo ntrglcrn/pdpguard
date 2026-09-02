@@ -70,7 +70,11 @@ export class WorkspaceService {
   }
 
   /** Server-only: call after an external identity flow verifies the user. */
-  issueSession(userId: string, ttlMs = SESSION_TTL_MS) {
+  issueSession(
+    userId: string,
+    ttlMs = SESSION_TTL_MS,
+    options: { secureCookie?: boolean } = {},
+  ) {
     this.createUser(userId);
     const token = randomBytes(32).toString("base64url");
     const sessionId = tokenHash(token);
@@ -79,7 +83,10 @@ export class WorkspaceService {
         "INSERT INTO sessions (id, user_id, expires_at) VALUES (?, ?, ?)",
       )
       .run(sessionId, userId, new Date(Date.now() + ttlMs).toISOString());
-    return { token, cookie: sessionCookie(token, ttlMs) };
+    return {
+      token,
+      cookie: sessionCookie(token, ttlMs, options.secureCookie ?? true),
+    };
   }
 
   authenticateRequest(request: Request) {
@@ -562,8 +569,9 @@ function tokenHash(token: string) {
   return createHash("sha256").update(token).digest("hex");
 }
 
-function sessionCookie(token: string, ttlMs: number) {
-  return `${SESSION_COOKIE_NAME}=${token}; HttpOnly; SameSite=Strict; Secure; Path=/; Max-Age=${Math.floor(ttlMs / 1_000)}`;
+function sessionCookie(token: string, ttlMs: number, secure: boolean) {
+  const secureAttribute = secure ? "; Secure" : "";
+  return `${SESSION_COOKIE_NAME}=${token}; HttpOnly; SameSite=Strict${secureAttribute}; Path=/; Max-Age=${Math.floor(ttlMs / 1_000)}`;
 }
 
 function withoutArtifacts(result: AuditResult): AuditRun["result"] {
