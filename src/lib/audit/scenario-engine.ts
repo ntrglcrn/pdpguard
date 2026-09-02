@@ -19,6 +19,7 @@ const MAX_VALUE_LENGTH = 500;
 const MAX_EVIDENCE_ITEMS = 12;
 const MAX_EVIDENCE_LENGTH = 500;
 const MAX_STEP_TIMEOUT_MS = 5_000;
+const NAVIGATION_STABILITY_MS = 100;
 const SENSITIVE_FIELD =
   /password|passcode|secret|token|card|cvv|cvc|iban|account/i;
 const PLACEHOLDER_PATH_SEGMENT =
@@ -153,6 +154,21 @@ const stepSchema = z.union([
     ),
   z
     .object({
+      assert: z.literal("navigation"),
+      from: z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/),
+      equals: z.string().max(2_048).optional(),
+      matches: z.string().max(2_048).optional(),
+      errorText: boundedString.optional(),
+      timeoutMs: z.number().int().min(100).max(MAX_STEP_TIMEOUT_MS).optional(),
+    })
+    .strict()
+    .refine(
+      (value) =>
+        Number(Boolean(value.equals)) + Number(Boolean(value.matches)) === 1,
+      "Specify exactly one URL expectation.",
+    ),
+  z
+    .object({
       assert: z.literal("visibleText"),
       text: boundedString,
       locator: locatorSchema.optional(),
@@ -174,6 +190,26 @@ const stepSchema = z.union([
     .strict(),
   z
     .object({
+      assert: z.literal("keyboardReachable"),
+      locator: locatorSchema,
+      maxTabs: z.number().int().min(1).max(20).optional(),
+    })
+    .strict(),
+  z
+    .object({
+      assert: z.literal("dismissedByEscape"),
+      locator: z
+        .object({
+          by: z.literal("role"),
+          role: z.literal("dialog"),
+          name: boundedString.optional(),
+          exact: z.boolean().optional(),
+        })
+        .strict(),
+    })
+    .strict(),
+  z
+    .object({
       assert: z.literal("fingerprintChanged"),
       from: z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/),
     })
@@ -184,6 +220,30 @@ const stepSchema = z.union([
       locator: locatorSchema,
       source: sourceSchema,
       equalsCapture: z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/),
+    })
+    .strict(),
+  z
+    .object({
+      assert: z.literal("productIdentity"),
+      kind: z.enum(["title", "sku", "productId"]),
+      expected: boundedString,
+      locator: locatorSchema,
+      source: sourceSchema.optional(),
+    })
+    .strict(),
+  z
+    .object({
+      assert: z.literal("productIdentity"),
+      kind: z.literal("canonicalUrl"),
+      expected: z.string().max(2_048),
+    })
+    .strict(),
+  z
+    .object({
+      assert: z.literal("productIdentity"),
+      kind: z.literal("jsonLd"),
+      field: z.enum(["@id", "name", "productID", "productId", "sku", "url"]),
+      expected: boundedString,
     })
     .strict(),
   z
@@ -255,10 +315,7 @@ export async function runScenario(
   let navigationSafetyError: UnsafeUrlError | null = null;
   const safeNavigation = async (route: Route) => {
     const request = route.request();
-    if (
-      !request.isNavigationRequest() ||
-      request.frame() !== page.mainFrame()
-    ) {
+    if (!/^https?:/.test(request.url())) {
       await route.fallback();
       return;
     }
@@ -284,6 +341,7 @@ export async function runScenario(
   };
   page.on("response", responses);
   await page.route("**/*", safeNavigation);
+  await page.context().route("**/*", safeNavigation);
   const captures = new Map<string, string>();
   const observations: string[] = [];
   const sourceUrl = page.url();
@@ -291,7 +349,7 @@ export async function runScenario(
   try {
     for (const [index, step] of scenario.steps.entries()) {
       try {
-        await withTimeout(
+        const stepEvidence = await withTimeout(
           executeStep(page, step, {
             captures,
             origins,
@@ -301,11 +359,12 @@ export async function runScenario(
         );
         assertApprovedPage(page, origins);
         observations.push(
-          stepObservation(
-            step,
-            page,
-            new Set(scenario.evidenceQueryKeys ?? []),
-          ),
+          stepEvidence ??
+            stepObservation(
+              step,
+              page,
+              new Set(scenario.evidenceQueryKeys ?? []),
+            ),
         );
       } catch (error) {
         const finding = scenarioFinding(
@@ -347,6 +406,10 @@ export async function runScenario(
   } finally {
     page.off("response", responses);
     await page.unroute("**/*", safeNavigation).catch(() => undefined);
+    await page
+      .context()
+      .unroute("**/*", safeNavigation)
+      .catch(() => undefined);
   }
 }
 
@@ -478,6 +541,36 @@ async function executeStep(
       throw new Error(
         `Expected ${locatorDescription(step.locator)} to be ${step.state}.${reachability ? ` ${reachability.evidence}` : ""}`,
       );
+    if (reachability) return reachability.evidence;
+  } else if (step.assert === "keyboardReachable") {
+    const locator = await unique(page, step.locator);
+    const maxTabs = step.maxTabs ?? 12;
+    const attempts = await inspectKeyboardReachability(page, locator, maxTabs);
+    if (attempts === null)
+      throw new Error(
+        `Expected ${locatorDescription(step.locator)} to be keyboard reachable within ${maxTabs} Tab presses.`,
+      );
+    return `${locatorDescription(step.locator)} reached by keyboard after ${attempts} Tab presses (limit ${maxTabs}).`;
+  } else if (step.assert === "dismissedByEscape") {
+    const locator = await unique(page, step.locator);
+    if (!(await locator.isVisible()))
+      throw new Error(
+        `Expected ${locatorDescription(step.locator)} to be visible before Escape; observed hidden.`,
+      );
+    await page.keyboard.press("Escape");
+    const deadline = Date.now() + 1_000;
+    let hiddenSince = 0;
+    while (Date.now() < deadline) {
+      if (await locator.isVisible().catch(() => false)) hiddenSince = 0;
+      else if (!hiddenSince) hiddenSince = Date.now();
+      else if (Date.now() - hiddenSince >= NAVIGATION_STABILITY_MS) break;
+      await page.waitForTimeout(50);
+    }
+    if (await locator.isVisible().catch(() => false))
+      throw new Error(
+        `Expected ${locatorDescription(step.locator)} to dismiss after Escape; before visible; after visible.`,
+      );
+    return `${locatorDescription(step.locator)} dismissed by Escape; before visible; after hidden or detached.`;
   } else if (step.assert === "fingerprintChanged") {
     const before = context.captures.get(step.from);
     if (before === undefined)
@@ -485,6 +578,47 @@ async function executeStep(
     const observed = await mainFingerprint(page);
     if (observed === before)
       throw new Error("Expected the main-content fingerprint to change.");
+  } else if (step.assert === "navigation") {
+    const before = context.captures.get(step.from);
+    if (before === undefined)
+      throw new Error(`Capture ${step.from} does not exist.`);
+    const deadline = Date.now() + (step.timeoutMs ?? MAX_STEP_TIMEOUT_MS);
+    let stableFingerprint: string | undefined;
+    let stableSince = 0;
+    while (Date.now() < deadline) {
+      if (
+        step.errorText &&
+        (await page
+          .getByText(step.errorText, { exact: false })
+          .first()
+          .isVisible()
+          .catch(() => false))
+      )
+        throw new Error(
+          `Expected navigation without visible error text: ${step.errorText}.`,
+        );
+      const urlMatches = step.equals
+        ? page.url() === step.equals
+        : globMatches(page.url(), step.matches!);
+      const fingerprint = await mainFingerprint(page);
+      if (urlMatches && fingerprint !== before) {
+        if (fingerprint !== stableFingerprint) {
+          stableFingerprint = fingerprint;
+          stableSince = Date.now();
+        } else if (Date.now() - stableSince >= NAVIGATION_STABILITY_MS) return;
+      } else {
+        stableFingerprint = undefined;
+      }
+      await page.waitForTimeout(50);
+    }
+    const urlMatches = step.equals
+      ? page.url() === step.equals
+      : globMatches(page.url(), step.matches!);
+    throw new Error(
+      urlMatches
+        ? "Expected the main-content fingerprint to change after navigation."
+        : "Expected the configured URL; observed a different final URL.",
+    );
   } else if (step.assert === "capturedValue") {
     const expected = context.captures.get(step.equalsCapture);
     if (expected === undefined)
@@ -494,6 +628,25 @@ async function executeStep(
     );
     if (observed !== expected)
       throw new Error(`Expected ${expected}; observed ${observed}.`);
+  } else if (step.assert === "productIdentity") {
+    const observed = await readProductIdentity(page, step);
+    const distinct = new Set(
+      observed.map((value) => normalizeIdentity(step.kind, value)),
+    );
+    if (step.kind === "jsonLd" && distinct.size > 1)
+      throw new Error(
+        `Expected one unambiguous jsonLd identity; observed ${observed.map((value) => safeIdentity(step.kind, value, step.field)).join(", ")}.`,
+      );
+    if (
+      !observed.some(
+        (value) =>
+          normalizeIdentity(step.kind, value) ===
+          normalizeIdentity(step.kind, step.expected),
+      )
+    )
+      throw new Error(
+        `Expected ${step.kind} identity ${safeIdentity(step.kind, step.expected, step.kind === "jsonLd" ? step.field : undefined)}; observed ${observed.map((value) => safeIdentity(step.kind, value, step.kind === "jsonLd" ? step.field : undefined)).join(", ") || "none"}.`,
+      );
   } else {
     const matches = (request: ObservedRequest) =>
       request.method === (step.method ?? request.method) &&
@@ -575,9 +728,95 @@ async function readValue(
   return (await locator.getAttribute(source.slice("attribute:".length))) ?? "";
 }
 
+async function readProductIdentity(
+  page: Page,
+  step: Extract<ScenarioStep, { assert: "productIdentity" }>,
+): Promise<string[]> {
+  if (step.kind === "canonicalUrl") {
+    const href = await page
+      .locator("link[rel~='canonical']")
+      .first()
+      .getAttribute("href");
+    return href ? [new URL(href, page.url()).href] : [];
+  }
+  if (step.kind !== "jsonLd")
+    return [
+      await readValue(await unique(page, step.locator), step.source ?? "text"),
+    ];
+
+  return page.evaluate((field) => {
+    const output: string[] = [];
+    const records: Record<string, unknown>[] = [];
+    let bytes = 0;
+    for (const script of Array.from(
+      document.querySelectorAll<HTMLScriptElement>(
+        "script[type='application/ld+json']",
+      ),
+    ).slice(0, 50)) {
+      const text = script.textContent ?? "";
+      bytes += text.length;
+      if (bytes > 1_000_000) break;
+      try {
+        const queue: unknown[] = [JSON.parse(text)];
+        let visited = 0;
+        while (queue.length && records.length < 200 && visited++ < 1_000) {
+          const value = queue.pop();
+          if (Array.isArray(value))
+            for (let index = value.length - 1; index >= 0; index--)
+              queue.push(value[index]);
+          else if (value && typeof value === "object") {
+            const record = value as Record<string, unknown>;
+            records.push(record);
+            if (record["@graph"]) queue.push(record["@graph"]);
+            if (record.hasVariant) queue.push(record.hasVariant);
+          }
+        }
+      } catch {
+        // Malformed JSON-LD is not identity evidence.
+      }
+    }
+    for (const record of records) {
+      const types = Array.isArray(record["@type"])
+        ? record["@type"]
+        : [record["@type"]];
+      if (
+        !types.some(
+          (type) =>
+            typeof type === "string" &&
+            /(?:^|schema\.org\/)(?:Product|ProductGroup)$/i.test(type),
+        )
+      )
+        continue;
+      const value = record[field];
+      if (typeof value === "string" || typeof value === "number")
+        output.push(String(value).slice(0, 500));
+    }
+    return output.slice(0, 20);
+  }, step.field);
+}
+
+function normalizeIdentity(kind: string, value: string) {
+  if (kind !== "canonicalUrl") return normalize(value);
+  try {
+    const url = new URL(value);
+    url.hash = "";
+    return url.href;
+  } catch {
+    return value.trim();
+  }
+}
+
+function safeIdentity(kind: string, value: string, field?: string) {
+  return kind === "canonicalUrl" ||
+    (kind === "jsonLd" && (field === "url" || field === "@id"))
+    ? sanitizeUrl(value, new Set())
+    : value.replace(/\s+/g, " ").trim().slice(0, MAX_VALUE_LENGTH);
+}
+
 async function inspectReachability(locator: Locator) {
+  const before = await locator.boundingBox().catch(() => null);
   await locator.scrollIntoViewIfNeeded().catch(() => undefined);
-  return locator.evaluate((element) => {
+  return locator.evaluate((element, beforeBox) => {
     const rect = element.getBoundingClientRect();
     const style = getComputedStyle(element);
     const x = Math.min(innerWidth - 1, Math.max(0, rect.left + rect.width / 2));
@@ -586,6 +825,10 @@ async function inspectReachability(locator: Locator) {
       Math.max(0, rect.top + rect.height / 2),
     );
     const hit = document.elementFromPoint(x, y);
+    const blocker =
+      hit && hit !== element && !element.contains(hit)
+        ? `${hit.tagName.toLowerCase()} role=${hit.getAttribute("role")?.slice(0, 40) ?? "none"} testId=${hit.getAttribute("data-testid")?.slice(0, 80) ?? "none"}`
+        : "none";
     const containers: string[] = [];
     let parent = element.parentElement;
     while (parent && containers.length < 4) {
@@ -617,9 +860,46 @@ async function inspectReachability(locator: Locator) {
       Boolean(hit && (hit === element || element.contains(hit)));
     return {
       pass,
-      evidence: `Box ${Math.round(rect.left)},${Math.round(rect.top)} ${Math.round(rect.width)}x${Math.round(rect.height)}; actionable point ${Math.round(x)},${Math.round(y)} hit ${hit?.tagName.toLowerCase() ?? "nothing"}; overflow: ${containers.join(" | ") || "none"}.`,
+      evidence: `Box before scroll ${beforeBox ? `${Math.round(beforeBox.x)},${Math.round(beforeBox.y)} ${Math.round(beforeBox.width)}x${Math.round(beforeBox.height)}` : "unavailable"}; after scroll ${Math.round(rect.left)},${Math.round(rect.top)} ${Math.round(rect.width)}x${Math.round(rect.height)}; actionable point ${Math.round(x)},${Math.round(y)} hit ${hit?.tagName.toLowerCase() ?? "nothing"}; blocker ${blocker}; overflow: ${containers.join(" | ") || "none"}.`,
     };
-  });
+  }, before);
+}
+
+async function inspectKeyboardReachability(
+  page: Page,
+  locator: Locator,
+  maxTabs: number,
+) {
+  const previousFocus = await page.evaluateHandle(() => document.activeElement);
+  try {
+    for (let attempt = 0; attempt <= maxTabs; attempt++) {
+      if (
+        await locator.evaluate(
+          (element) =>
+            document.activeElement === element ||
+            element.contains(document.activeElement),
+        )
+      )
+        return attempt;
+      if (attempt < maxTabs) await page.keyboard.press("Tab");
+    }
+    return null;
+  } finally {
+    await previousFocus
+      .evaluate((element) => {
+        if (
+          element instanceof HTMLElement &&
+          element.isConnected &&
+          element !== document.body &&
+          element !== document.documentElement
+        )
+          element.focus();
+        else if (document.activeElement instanceof HTMLElement)
+          document.activeElement.blur();
+      })
+      .catch(() => undefined);
+    await previousFocus.dispose();
+  }
 }
 
 function normalize(value: string) {
@@ -705,9 +985,14 @@ function scenarioFinding(
     `Final URL: ${sanitizeUrl(page.url(), queryKeys)}.`,
     `Viewport: ${page.viewportSize()?.width ?? "unknown"}x${page.viewportSize()?.height ?? "unknown"}; locale: ${options.locale ?? "unspecified"}.`,
     detail,
+    observations.findLast(
+      (item) => item.startsWith("Clicked ") || item.startsWith("History back "),
+    ),
     ...observations.slice(-3),
     ...(options.screenshotUrl ? [`Screenshot: ${options.screenshotUrl}.`] : []),
   ]
+    .filter((item): item is string => Boolean(item))
+    .filter((item, index, items) => items.indexOf(item) === index)
     .slice(0, MAX_EVIDENCE_ITEMS)
     .map((item) => item.slice(0, MAX_EVIDENCE_LENGTH));
   return {
@@ -737,6 +1022,8 @@ function stepObservation(
     return `Clicked ${locatorDescription(step.locator)}; resulting URL: ${sanitizeUrl(page.url(), allowedQueryKeys)}.`;
   if ("action" in step && step.action === "back")
     return `History back completed; resulting URL: ${sanitizeUrl(page.url(), allowedQueryKeys)}.`;
+  if ("assert" in step && step.assert === "productIdentity")
+    return `Passed ${step.kind} identity assertion for ${safeIdentity(step.kind, step.expected, step.kind === "jsonLd" ? step.field : undefined)}.`;
   if ("assert" in step) return `Passed assertion: ${step.assert}.`;
   if ("capture" in step) return `Captured ${step.capture}: ${step.name}.`;
   return `Completed action: ${step.action}.`;

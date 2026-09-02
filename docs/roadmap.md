@@ -108,13 +108,13 @@ evidence, при сохранении v1 contracts.
 - [x] Добавить static share URL integrity для undefined, null и unresolved
       path/template segments. Это static часть
       [FR-5](./prd/pdp-guard-v2.md#fr-5-pdp-navigation-and-share-link-validation).
-- [ ] Добавить configured PDP navigation scenario package: final URL, explicit
+- [x] Добавить configured PDP navigation scenario package: final URL, explicit
       error boundary, content transition и history-back —
       [FR-5](./prd/pdp-guard-v2.md#fr-5-pdp-navigation-and-share-link-validation).
-- [ ] Проверять product identity после in-app navigation по stable explicit
+- [x] Проверять product identity после in-app navigation по stable explicit
       identifier, не по image URL —
       [FR-6](./prd/pdp-guard-v2.md#fr-6-product-identity-after-in-app-navigation).
-- [ ] Добавить configured reachability и Escape dismissal checks поверх
+- [x] Добавить configured reachability и Escape dismissal checks поверх
       scenario engine —
       [FR-10](./prd/pdp-guard-v2.md#fr-10-interactive-reachability-and-keyboard-dismissal).
 - [ ] После отдельной calibration уточнить product-image lazy-load readiness,
@@ -167,9 +167,8 @@ execution остаётся внутри established security boundary.
 
 # Sequencing and Gates
 
-1. **Engine GA:** scenario engine уже создан; next are configured FR-5,
-   FR-6 and FR-10 checks, each with deterministic fixture and benchmark
-   coverage.
+1. **Engine GA:** scenario engine и configured FR-5, FR-6 и FR-10 checks
+   завершены с deterministic fixture и benchmark coverage.
 2. **Surface GA:** FR-8 and FR-9 use the scenario engine and do not require
    authenticated sessions.
 3. **Hosted alpha:** external authentication/authorization, isolated workers,
@@ -191,10 +190,7 @@ main — integration only; it has no feature focus.
 
 ## Engine Current Focus
 
-**Implement configured [FR-5 PDP navigation/share-link validation](./prd/pdp-guard-v2.md#fr-5-pdp-navigation-and-share-link-validation) on top of the completed scenario engine.**
-
-Static share-url-integrity is complete; this next step covers observed
-transition state without introducing unrestricted browser interaction.
+**Configured [FR-5 PDP navigation/share-link validation](./prd/pdp-guard-v2.md#fr-5-pdp-navigation-and-share-link-validation), [FR-6 product identity](./prd/pdp-guard-v2.md#fr-6-product-identity-after-in-app-navigation) и [FR-10 reachability/keyboard dismissal](./prd/pdp-guard-v2.md#fr-10-interactive-reachability-and-keyboard-dismissal) завершены. Следующая Engine задача не начата.**
 
 ## Platform Current Focus
 
@@ -202,7 +198,7 @@ transition state without introducing unrestricted browser interaction.
 
 ## Surfaces Current Focus
 
-**Blocked on configured scenario packages: do not begin PLP/search, locale or cart/checkout implementation before the Engine FR-5 package establishes the product integration pattern.**
+**Configured scenario prerequisite завершён; PLP/search, locale и cart/checkout implementation ещё не начаты.**
 
 ---
 

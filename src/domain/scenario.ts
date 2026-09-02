@@ -62,12 +62,47 @@ export type ScenarioStep =
       locator: ScenarioLocator;
       state: "visible" | "hidden" | "enabled" | "selected" | "reachable";
     }
+  | {
+      assert: "keyboardReachable";
+      locator: ScenarioLocator;
+      maxTabs?: number;
+    }
+  | {
+      assert: "dismissedByEscape";
+      locator: Extract<ScenarioLocator, { by: "role" }> & { role: "dialog" };
+    }
   | { assert: "fingerprintChanged"; from: string }
+  | {
+      assert: "navigation";
+      from: string;
+      equals?: string;
+      matches?: string;
+      errorText?: string;
+      timeoutMs?: number;
+    }
   | {
       assert: "capturedValue";
       locator: ScenarioLocator;
       source: "text" | "value" | `attribute:${string}`;
       equalsCapture: string;
+    }
+  | {
+      assert: "productIdentity";
+      kind: "title" | "sku" | "productId";
+      expected: string;
+      locator: ScenarioLocator;
+      source?: "text" | "value" | `attribute:${string}`;
+    }
+  | {
+      assert: "productIdentity";
+      kind: "canonicalUrl";
+      expected: string;
+    }
+  | {
+      assert: "productIdentity";
+      kind: "jsonLd";
+      field: "@id" | "name" | "productID" | "productId" | "sku" | "url";
+      expected: string;
     }
   | {
       assert: "request";

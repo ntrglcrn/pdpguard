@@ -47,7 +47,7 @@ describe("scenario engine", () => {
       }
       await route.fulfill({
         contentType: "text/html",
-        body: `<main><h1>${url.pathname === "/next" ? "Next product" : "First product"}</h1><span data-testid="sku">${url.pathname === "/next" ? "2" : "1"}</span><a href="/next?sku=2&token=secret">Next</a><button onclick="fetch('/api/product?sku=2')">Load</button></main>`,
+        body: `<html><head><link rel="canonical" href="https://shop.example.com${url.pathname}"></head><body><main><h1 data-testid="title">${url.pathname === "/next" ? "Next product" : "First product"}</h1><span data-testid="sku">${url.pathname === "/next" ? "2" : "1"}</span><span data-testid="product-id">${url.pathname === "/next" ? "product-2" : "product-1"}</span><a href="/next?sku=2&token=secret">Next</a><button onclick="fetch('/api/product?sku=2')">Load</button><script type="application/ld+json">${JSON.stringify({ "@type": "Product", name: url.pathname === "/next" ? "Next product" : "First product", sku: url.pathname === "/next" ? "2" : "1", productID: url.pathname === "/next" ? "product-2" : "product-1", url: `https://shop.example.com${url.pathname}` })}</script></main></body></html>`,
       });
     });
   });
@@ -65,7 +65,12 @@ describe("scenario engine", () => {
           action: "click",
           locator: { by: "role", role: "link", name: "Next" },
         },
-        { assert: "fingerprintChanged", from: "before" },
+        {
+          assert: "navigation",
+          from: "before",
+          matches: "https://shop.example.com/next*",
+          timeoutMs: 200,
+        },
         { assert: "url", matches: "https://shop.example.com/next*" },
         { assert: "visibleText", text: "Next product" },
         {
@@ -168,7 +173,12 @@ describe("scenario engine", () => {
           action: "click",
           locator: { by: "role", role: "button", name: "Next" },
         },
-        { assert: "fingerprintChanged", from: "before" },
+        {
+          assert: "navigation",
+          from: "before",
+          matches: "https://shop.example.com/next*",
+          timeoutMs: 200,
+        },
       ]),
       { resolver },
     );
@@ -180,26 +190,105 @@ describe("scenario engine", () => {
     expect(result.finding.evidence.join(" ")).toContain("sku=2");
   });
 
+  it("waits for an observable client-side content transition", async () => {
+    await page.goto("https://shop.example.com/start");
+    await page.setContent(
+      `<main><h1>First product</h1><button onclick="history.pushState({}, '', '/next?sku=2'); setTimeout(() => document.querySelector('h1').textContent = 'Next product', 100)">Next</button></main>`,
+    );
+    const result = await runScenario(
+      page,
+      baseScenario([
+        { capture: "fingerprint", name: "before" },
+        {
+          action: "click",
+          locator: { by: "role", role: "button", name: "Next" },
+        },
+        {
+          assert: "navigation",
+          from: "before",
+          matches: "https://shop.example.com/next*",
+          errorText: "Something went wrong",
+        },
+      ]),
+      { resolver },
+    );
+
+    expect(result.finding.status).toBe("passed");
+  });
+
+  it("reports a visible error boundary before a successful-looking transition", async () => {
+    await page.goto("https://shop.example.com/start");
+    await page.setContent(
+      `<main><h1>First product</h1><button onclick="history.pushState({}, '', '/next'); document.querySelector('main').innerHTML = '<h1>Next product</h1><p>Something went wrong</p>'">Next</button></main>`,
+    );
+    const result = await runScenario(
+      page,
+      baseScenario([
+        { capture: "fingerprint", name: "before" },
+        {
+          action: "click",
+          locator: { by: "role", role: "button", name: "Next" },
+        },
+        {
+          assert: "navigation",
+          from: "before",
+          equals: "https://shop.example.com/next",
+          errorText: "Something went wrong",
+        },
+      ]),
+      { resolver },
+    );
+
+    expect(result.finding.status).toBe("failed");
+    expect(result.finding.evidence.join(" ")).toContain(
+      "visible error text: Something went wrong",
+    );
+    expect(result.finding.evidence.join(" ")).toContain(
+      "Clicked role=button name=Next",
+    );
+  });
+
+  it("does not accept a transient SPA state before a delayed error", async () => {
+    await page.goto("https://shop.example.com/start");
+    await page.setContent(
+      `<main><h1>First product</h1><button onclick="history.pushState({}, '', '/next'); document.querySelector('h1').textContent = 'Loading'; setTimeout(() => document.querySelector('main').innerHTML = '<h1>First product</h1><p>Something went wrong</p>', 75)">Next</button></main>`,
+    );
+    const result = await runScenario(
+      page,
+      baseScenario([
+        { capture: "fingerprint", name: "before" },
+        {
+          action: "click",
+          locator: { by: "role", role: "button", name: "Next" },
+        },
+        {
+          assert: "navigation",
+          from: "before",
+          equals: "https://shop.example.com/next",
+          errorText: "Something went wrong",
+        },
+      ]),
+      { resolver },
+    );
+
+    expect(result.finding.status).toBe("failed");
+    expect(result.finding.evidence.join(" ")).toContain("visible error text");
+  });
+
   it("captures product identity from the clicked target URL", async () => {
     await page.goto("https://shop.example.com/start");
     const result = await runScenario(
       page,
       baseScenario([
         {
-          capture: "linkTarget",
-          name: "target_sku",
-          locator: { by: "role", role: "link", name: "Next" },
-          part: { query: "sku" },
-        },
-        {
           action: "click",
           locator: { by: "role", role: "link", name: "Next" },
         },
         {
-          assert: "capturedValue",
+          assert: "productIdentity",
+          kind: "sku",
+          expected: "2",
           locator: { by: "testId", value: "sku" },
-          source: "text",
-          equalsCapture: "target_sku",
         },
       ]),
       { resolver },
@@ -217,20 +306,14 @@ describe("scenario engine", () => {
       page,
       baseScenario([
         {
-          capture: "linkTarget",
-          name: "target_sku",
-          locator: { by: "role", role: "link", name: "Next" },
-          part: { query: "sku" },
-        },
-        {
           action: "click",
           locator: { by: "role", role: "link", name: "Next" },
         },
         {
-          assert: "capturedValue",
+          assert: "productIdentity",
+          kind: "sku",
+          expected: "2",
           locator: { by: "testId", value: "sku" },
-          source: "text",
-          equalsCapture: "target_sku",
         },
       ]),
       { resolver },
@@ -238,8 +321,167 @@ describe("scenario engine", () => {
 
     expect(result.finding.status).toBe("failed");
     expect(result.finding.evidence.join(" ")).toContain(
-      "Expected 2; observed 1",
+      "Expected sku identity 2; observed 1",
     );
+  });
+
+  it("verifies the configured product identity signals", async () => {
+    await page.goto("https://shop.example.com/next");
+    const result = await runScenario(
+      page,
+      baseScenario([
+        {
+          assert: "productIdentity",
+          kind: "title",
+          expected: "Next product",
+          locator: { by: "testId", value: "title" },
+        },
+        {
+          assert: "productIdentity",
+          kind: "productId",
+          expected: "product-2",
+          locator: { by: "testId", value: "product-id" },
+        },
+        {
+          assert: "productIdentity",
+          kind: "canonicalUrl",
+          expected: "https://shop.example.com/next#ignored",
+        },
+        {
+          assert: "productIdentity",
+          kind: "jsonLd",
+          field: "productID",
+          expected: "product-2",
+        },
+      ]),
+      { resolver },
+    );
+
+    expect(result.finding.status).toBe("passed");
+  });
+
+  it.each([
+    {
+      name: "SKU",
+      step: {
+        assert: "productIdentity" as const,
+        kind: "sku" as const,
+        expected: "wrong-sku",
+        locator: { by: "testId" as const, value: "sku" },
+      },
+      evidence: "Expected sku identity wrong-sku; observed 2",
+    },
+    {
+      name: "canonical",
+      step: {
+        assert: "productIdentity" as const,
+        kind: "canonicalUrl" as const,
+        expected: "https://shop.example.com/wrong?token=secret",
+      },
+      evidence:
+        "Expected canonicalUrl identity https://shop.example.com/wrong; observed https://shop.example.com/next",
+    },
+    {
+      name: "JSON-LD",
+      step: {
+        assert: "productIdentity" as const,
+        kind: "jsonLd" as const,
+        field: "productID" as const,
+        expected: "wrong-product",
+      },
+      evidence: "Expected jsonLd identity wrong-product; observed product-2",
+    },
+  ])("reports a deterministic $name mismatch", async ({ step, evidence }) => {
+    await page.goto("https://shop.example.com/next");
+    const result = await runScenario(page, baseScenario([step]), { resolver });
+
+    expect(result.finding.status).toBe("failed");
+    expect(result.finding.evidence.join(" ")).toContain(evidence);
+    expect(result.finding.evidence.join(" ")).not.toContain("secret");
+  });
+
+  it("allows scenarios to omit unavailable optional identity signals", async () => {
+    await page.setContent(`<span data-testid="sku">2</span>`);
+    const result = await runScenario(
+      page,
+      baseScenario([
+        {
+          assert: "productIdentity",
+          kind: "sku",
+          expected: "2",
+          locator: { by: "testId", value: "sku" },
+        },
+      ]),
+      { resolver },
+    );
+
+    expect(result.finding.status).toBe("passed");
+  });
+
+  it("rejects ambiguous JSON-LD product identity", async () => {
+    await page.setContent(
+      `<script type="application/ld+json">${JSON.stringify([
+        { "@type": "Product", sku: "stale" },
+        { "@type": "Product", sku: "target" },
+      ])}</script>`,
+    );
+    const result = await runScenario(
+      page,
+      baseScenario([
+        {
+          assert: "productIdentity",
+          kind: "jsonLd",
+          field: "sku",
+          expected: "target",
+        },
+      ]),
+      { resolver },
+    );
+
+    expect(result.finding.status).toBe("failed");
+    expect(result.finding.evidence.join(" ")).toContain("unambiguous");
+  });
+
+  it("sanitizes URL-like JSON-LD identity evidence", async () => {
+    await page.setContent(
+      `<script type="application/ld+json">${JSON.stringify({ "@type": "Product", url: "https://shop.example.com/stale?token=secret" })}</script>`,
+    );
+    const result = await runScenario(
+      page,
+      baseScenario([
+        {
+          assert: "productIdentity",
+          kind: "jsonLd",
+          field: "url",
+          expected: "https://shop.example.com/target?token=secret",
+        },
+      ]),
+      { resolver },
+    );
+
+    expect(result.finding.status).toBe("failed");
+    expect(result.finding.evidence.join(" ")).not.toContain("secret");
+  });
+
+  it("bounds JSON-LD traversal for large primitive arrays", async () => {
+    await page.setContent(
+      `<script type="application/ld+json">${JSON.stringify(Array.from({ length: 50_000 }, (_, index) => index))}</script>`,
+    );
+    const result = await runScenario(
+      page,
+      baseScenario([
+        {
+          assert: "productIdentity",
+          kind: "jsonLd",
+          field: "sku",
+          expected: "target",
+        },
+      ]),
+      { resolver },
+    );
+
+    expect(result.finding.status).toBe("failed");
+    expect(result.finding.evidence.join(" ")).toContain("observed none");
   });
 
   it("scrolls a configured descendant into a reachable position", async () => {
@@ -279,8 +521,51 @@ describe("scenario engine", () => {
 
     expect(result.finding.status).toBe("failed");
     expect(result.finding.evidence.join(" ")).toMatch(
-      /Box .* actionable point .* overflow:/,
+      /Box before scroll .* actionable point .* blocker div .* overflow:/,
     );
+  });
+
+  it("checks bounded keyboard reachability", async () => {
+    await page.setContent(`<button>First</button><button>Target</button>`);
+    const result = await runScenario(
+      page,
+      baseScenario([
+        {
+          assert: "keyboardReachable",
+          locator: { by: "role", role: "button", name: "Target" },
+          maxTabs: 2,
+        },
+      ]),
+      { resolver },
+    );
+
+    expect(result.finding.status).toBe("passed");
+    expect(result.finding.evidence.join(" ")).toContain(
+      "reached by keyboard after 2 Tab presses (limit 2)",
+    );
+    expect(
+      await page.evaluate(() => document.activeElement === document.body),
+    ).toBe(true);
+  });
+
+  it("fails keyboard reachability within the configured bound", async () => {
+    await page.setContent(
+      `<button>First</button><button>Second</button><button>Target</button>`,
+    );
+    const result = await runScenario(
+      page,
+      baseScenario([
+        {
+          assert: "keyboardReachable",
+          locator: { by: "role", role: "button", name: "Target" },
+          maxTabs: 2,
+        },
+      ]),
+      { resolver },
+    );
+
+    expect(result.finding.status).toBe("failed");
+    expect(result.finding.evidence.join(" ")).toContain("within 2 Tab presses");
   });
 
   it("fails when a configured dialog remains visible after Escape", async () => {
@@ -322,6 +607,45 @@ describe("scenario engine", () => {
     expect(result.finding.status).toBe("passed");
   });
 
+  it("atomically checks configured Escape dismissal", async () => {
+    await page.setContent(
+      `<div role="dialog" aria-label="Size"><button>Close</button></div><script>document.addEventListener('keydown', event => { if (event.key === 'Escape') document.querySelector('[role=dialog]').remove() })</script>`,
+    );
+    const result = await runScenario(
+      page,
+      baseScenario([
+        {
+          assert: "dismissedByEscape",
+          locator: { by: "role", role: "dialog", name: "Size" },
+        },
+      ]),
+      { resolver },
+    );
+
+    expect(result.finding.status).toBe("passed");
+    expect(result.finding.evidence.join(" ")).toContain(
+      "before visible; after hidden or detached",
+    );
+  });
+
+  it("does not accept a dialog that reopens after Escape", async () => {
+    await page.setContent(
+      `<div role="dialog" aria-label="Size">Choose a size</div><script>document.addEventListener('keydown', event => { if (event.key === 'Escape') { const dialog = document.querySelector('[role=dialog]'); dialog.hidden = true; setTimeout(() => dialog.hidden = false, 75) } })</script>`,
+    );
+    const result = await runScenario(
+      page,
+      baseScenario([
+        {
+          assert: "dismissedByEscape",
+          locator: { by: "role", role: "dialog", name: "Size" },
+        },
+      ]),
+      { resolver },
+    );
+
+    expect(result.finding.status).toBe("failed");
+  });
+
   it("supports history-back target assertions", async () => {
     await page.goto("https://shop.example.com/start");
     const result = await runScenario(
@@ -339,6 +663,60 @@ describe("scenario engine", () => {
     );
 
     expect(result.finding.status).toBe("passed");
+  });
+
+  it("supports bounded history-back transition assertions", async () => {
+    await page.goto("https://shop.example.com/start");
+    await page.getByRole("link", { name: "Next" }).click();
+    const result = await runScenario(
+      page,
+      baseScenario([
+        { capture: "fingerprint", name: "target" },
+        { action: "back" },
+        {
+          assert: "navigation",
+          from: "target",
+          equals: "https://shop.example.com/start",
+          errorText: "Something went wrong",
+        },
+      ]),
+      { resolver },
+    );
+
+    expect(result.finding.status).toBe("passed");
+  });
+
+  it.each([
+    [
+      "private subresource",
+      `<button onclick="fetch('http://127.0.0.1/secret')">Unsafe</button>`,
+    ],
+    [
+      "popup origin escape",
+      `<a href="https://outside.test/secret" target="_blank">Unsafe</a>`,
+    ],
+  ])("blocks %s requests triggered by a click", async (_name, html) => {
+    await page.setContent(html);
+    const result = await runScenario(
+      page,
+      baseScenario([
+        {
+          action: "click",
+          locator: {
+            by: "role",
+            role: /popup/.test(_name) ? "link" : "button",
+            name: "Unsafe",
+          },
+        },
+        { assert: "request", urlMatches: "https://shop.example.com/never" },
+      ]),
+      { resolver },
+    );
+
+    expect(result.finding.status).toBe("failed");
+    expect(result.finding.evidence.join(" ")).toMatch(
+      /non-public network address|outside approved origins|internal hostnames/,
+    );
   });
 
   it("detects a configured visible error boundary on HTTP 200", async () => {
