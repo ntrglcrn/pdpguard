@@ -4,7 +4,12 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { AuditResult } from "@/domain/audit";
-import { AuthorizationError, WorkspaceService } from "@/lib/workspace-service";
+import { UnsafeUrlError } from "@/lib/url-safety";
+import {
+  AuthorizationError,
+  UnsafeStoreTargetError,
+  WorkspaceService,
+} from "@/lib/workspace-service";
 
 const resolver = async () => [{ address: "93.184.216.34", family: 4 }];
 const directories: string[] = [];
@@ -69,7 +74,7 @@ describe("WorkspaceService", () => {
     const memberSession = value.issueSession("member");
     value.addMember(owner, workspace.id, "member");
     const member = value.authenticateSession(memberSession.token);
-    const store = value.createStore(member, workspace.id, {
+    const store = await value.createStore(member, workspace.id, {
       name: "Shop",
       url: "https://example.com",
     });
@@ -99,6 +104,15 @@ describe("WorkspaceService", () => {
       artifacts: [{ auditRunId: run.id, id: "artifact-id", byteSize: 18 }],
     });
     expect(
+      reopened.listWorkspaces(reopened.authenticateSession(ownerSession.token)),
+    ).toEqual([workspace]);
+    expect(
+      reopened.getStore(
+        reopened.authenticateSession(ownerSession.token),
+        store.id,
+      ),
+    ).toEqual(store);
+    expect(
       reopened
         .readArtifact(
           reopened.authenticateSession(memberSession.token),
@@ -116,7 +130,7 @@ describe("WorkspaceService", () => {
       value.issueSession("outsider").token,
     );
     const workspace = value.createWorkspace(owner, "Acme");
-    const store = value.createStore(owner, workspace.id, {
+    const store = await value.createStore(owner, workspace.id, {
       name: "Shop",
       url: "https://example.com",
     });
@@ -147,7 +161,7 @@ describe("WorkspaceService", () => {
       value.issueSession("owner").token,
     );
     const workspace = value.createWorkspace(principal, "Acme");
-    const store = value.createStore(principal, workspace.id, {
+    const store = await value.createStore(principal, workspace.id, {
       name: "Shop",
       url: "https://example.com",
     });
@@ -163,6 +177,31 @@ describe("WorkspaceService", () => {
     expect(() => value.listStores(principal, workspace.id)).toThrow(
       AuthorizationError,
     );
+    value.close();
+  });
+
+  it("stores a public origin and rejects audit targets outside it", async () => {
+    const { value } = service();
+    const principal = value.authenticateSession(
+      value.issueSession("owner").token,
+    );
+    const workspace = value.createWorkspace(principal, "Acme");
+    const store = await value.createStore(principal, workspace.id, {
+      url: "https://example.com/catalog?ref=setup#ignored",
+    });
+
+    expect(store).toMatchObject({
+      name: "example.com",
+      url: "https://example.com",
+    });
+    await expect(
+      value.createAuditRun(principal, store.id, "https://other.example/pdp"),
+    ).rejects.toThrow(UnsafeStoreTargetError);
+    await expect(
+      value.createStore(principal, workspace.id, {
+        url: "http://localhost:3000",
+      }),
+    ).rejects.toThrow(UnsafeUrlError);
     value.close();
   });
 });

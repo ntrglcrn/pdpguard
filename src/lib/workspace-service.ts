@@ -15,9 +15,13 @@ import type {
   WorkspaceMember,
   WorkspaceRole,
 } from "@/domain/saas";
-import { validatePublicUrl, type DnsResolver } from "@/lib/url-safety";
+import {
+  UnsafeUrlError,
+  validatePublicUrl,
+  type DnsResolver,
+} from "@/lib/url-safety";
 
-const SESSION_COOKIE = "pdpguard_session";
+export const SESSION_COOKIE_NAME = "pdpguard_session";
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1_000;
 const MAX_ARTIFACT_BYTES = 10 * 1_024 * 1_024;
 
@@ -25,6 +29,13 @@ export class AuthorizationError extends Error {
   constructor() {
     super("The requested resource was not found.");
     this.name = "AuthorizationError";
+  }
+}
+
+export class UnsafeStoreTargetError extends UnsafeUrlError {
+  constructor() {
+    super("The product page URL must use the store origin.");
+    this.name = "UnsafeStoreTargetError";
   }
 }
 
@@ -76,7 +87,7 @@ export class WorkspaceService {
       .get("cookie")
       ?.split(";")
       .map((cookie) => cookie.trim().split("="))
-      .find(([name]) => name === SESSION_COOKIE)?.[1];
+      .find(([name]) => name === SESSION_COOKIE_NAME)?.[1];
     if (!token) throw new AuthorizationError();
     return this.authenticateSession(token);
   }
@@ -120,6 +131,18 @@ export class WorkspaceService {
     return workspace;
   }
 
+  listWorkspaces(principal: AuthenticatedUser) {
+    this.requireAuthenticated(principal);
+    return this.database
+      .prepare(
+        `SELECT w.* FROM workspaces w
+         JOIN workspace_members m ON m.workspace_id = w.id
+         WHERE m.user_id = ? ORDER BY w.created_at`,
+      )
+      .all(principal.userId)
+      .map(workspaceFromRow);
+  }
+
   addMember(
     principal: AuthenticatedUser,
     workspaceId: string,
@@ -136,17 +159,18 @@ export class WorkspaceService {
     return { workspaceId, userId, role } satisfies WorkspaceMember;
   }
 
-  createStore(
+  async createStore(
     principal: AuthenticatedUser,
     workspaceId: string,
-    input: { name: string; url: string },
+    input: { name?: string; url: string },
   ) {
     this.requireMember(principal, workspaceId);
+    const url = await validatePublicUrl(input.url, this.resolver);
     const store: Store = {
       id: randomUUID(),
       workspaceId,
-      name: requiredName(input.name),
-      url: requiredHttpUrl(input.url),
+      name: requiredName(input.name?.trim() || url.hostname),
+      url: url.origin,
       createdAt: new Date().toISOString(),
     };
     this.database
@@ -157,17 +181,24 @@ export class WorkspaceService {
     return store;
   }
 
+  getStore(principal: AuthenticatedUser, storeId: string) {
+    return this.requireStore(principal, storeId);
+  }
+
   async createAuditRun(
     principal: AuthenticatedUser,
     storeId: string,
     targetUrl: string,
   ) {
     const store = this.requireStore(principal, storeId);
+    const target = await validatePublicUrl(targetUrl, this.resolver);
+    if (target.origin !== new URL(store.url).origin)
+      throw new UnsafeStoreTargetError();
     const run: AuditRun = {
       id: randomUUID(),
       workspaceId: store.workspaceId,
       storeId,
-      targetUrl: (await validatePublicUrl(targetUrl, this.resolver)).href,
+      targetUrl: target.href,
       status: "queued",
       createdAt: new Date().toISOString(),
       startedAt: null,
@@ -527,23 +558,12 @@ function requiredName(value: string) {
   return name;
 }
 
-function requiredHttpUrl(value: string) {
-  if (value.length > 2_048) throw new Error("The URL is too long.");
-  const url = new URL(value);
-  if (url.protocol !== "http:" && url.protocol !== "https:")
-    throw new Error("Only HTTP and HTTPS URLs are allowed.");
-  if (url.username || url.password)
-    throw new Error("URLs containing credentials are not allowed.");
-  url.hash = "";
-  return url.href;
-}
-
 function tokenHash(token: string) {
   return createHash("sha256").update(token).digest("hex");
 }
 
 function sessionCookie(token: string, ttlMs: number) {
-  return `${SESSION_COOKIE}=${token}; HttpOnly; SameSite=Strict; Secure; Path=/; Max-Age=${Math.floor(ttlMs / 1_000)}`;
+  return `${SESSION_COOKIE_NAME}=${token}; HttpOnly; SameSite=Strict; Secure; Path=/; Max-Age=${Math.floor(ttlMs / 1_000)}`;
 }
 
 function withoutArtifacts(result: AuditResult): AuditRun["result"] {
@@ -559,6 +579,14 @@ function storeFromRow(row: Record<string, SQLInputValue>): Store {
     workspaceId: String(row.workspace_id),
     name: String(row.name),
     url: String(row.url),
+    createdAt: String(row.created_at),
+  };
+}
+
+function workspaceFromRow(row: Record<string, SQLInputValue>): Workspace {
+  return {
+    id: String(row.id),
+    name: String(row.name),
     createdAt: String(row.created_at),
   };
 }

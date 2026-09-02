@@ -129,13 +129,14 @@ execution остаётся внутри established security boundary.
       [hosted security boundary](./hosted-security-boundary.md).
 - [x] Реализовать persisted SQLite ownership chain и server-side owner/member
       authorization для Workspace → Store → Audit Run → Finding / Artifact.
+- [x] Добавить local SaaS Frontend v1: persisted Stores, Store-scoped audit
+      runs, reports/findings и authorized artifact access.
 - [ ] Добавить external authentication boundary до hosted доступа к customer
       URLs и audit results.
 - [ ] Перенести browser execution из web process в isolated per-job workers с
       durable lifecycle, cancellation и configurable bounds.
 - [ ] Добавить private durable artifact storage с retention/deletion; не
       переносить local-filesystem assumptions.
-- [ ] Добавить authorized single-run report и audit history.
 - [ ] Перед beta добавить encrypted session references, customer-owned API
       origin policy и prohibited-action controls —
       [FR-7](./prd/pdp-guard-v2.md#fr-7-variant-and-add-to-cart-consistency),
