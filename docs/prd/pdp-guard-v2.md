@@ -10,7 +10,9 @@
 ## 1. Executive summary
 
 PDP Guard v2.0 expands the current single-URL PDP audit into a deterministic
-ecommerce quality system for PDP, PLP, search, cart and checkout surfaces.
+ecommerce quality system for PDP, PLP, search, cart and checkout surfaces. The
+single-URL audit remains a Quick Audit; the regular PDP workflow is expected to
+begin with a registered Store and a bounded PDP inventory.
 
 Version 2.0 is not a general-purpose test builder and not an AI interface
 reviewer. It adds a bounded scenario engine and a small set of evidence-backed
@@ -23,8 +25,10 @@ checks for defects repeatedly observed in Jira:
 - storefront content disagrees with an owned API response;
 - cart and checkout totals or available payment methods are inconsistent.
 
-Every new v2 capability below is justified by one or more concrete Jira issues.
-Capabilities without Jira evidence are excluded or deferred.
+Every new deterministic check or scenario rule below is justified by one or more
+concrete Jira issues. Product-workflow structure may instead be validated
+through product use; capabilities without either evidence are excluded or
+deferred.
 
 ## 2. Background
 
@@ -46,11 +50,12 @@ returns deterministic findings plus a screenshot. Current stable checks are:
 - `purchase-cta`;
 - `structured-product-data`.
 
-The existing URL audit does not authenticate, scan catalogues, compare
-storefront state with API data or expose persisted audit history as a product
-surface. A bounded scenario engine now supports validated browser actions and
-assertions for local fixtures, but customer scenario configuration and hosted
-execution remain future work.
+The local SaaS foundation persists Stores, single-PDP audit history, findings,
+and authorized artifacts, but it does not yet scan catalogues or expose a PDP
+inventory, Store Audit, issue aggregation, or monitoring workflow. A bounded
+scenario engine now supports validated browser actions and assertions for local
+fixtures, but customer scenario configuration and hosted execution remain
+future work.
 
 ### 2.2 Evidence from Jira
 
@@ -413,7 +418,8 @@ surface-specific scenarios.
 
 **Requirements:**
 
-- Accept only bounded user-supplied URLs; v2.0 does not crawl the catalogue.
+- Accept only bounded user-supplied URLs; arbitrary/unbounded catalogue crawling
+  remains out of scope.
 - Identify configured product-card containers.
 - Support filter apply/reset scenarios and before/after state capture.
 - Support expected query/context assertions such as `gender=women`.
@@ -573,9 +579,14 @@ evidence to be actionable.
 
 ### 10.1 Configure
 
-The user selects a surface (`PDP`, `PLP`, `search`, `cart`, `checkout`) and
-provides an approved start URL. For a scenario, the user chooses from supported
-actions/assertions and supplies explicit locators and expected values.
+The regular PDP path begins with a registered Store and its bounded PDP
+inventory; a user selects an eligible inventory page for a Store Audit. A user
+may instead provide an approved same-origin PDP URL as a Quick Audit for
+diagnosis, reproduction, or specific-page verification. PLP, search, cart, and
+checkout remain explicitly supplied, configured scenario surfaces.
+
+For a scenario, the user chooses from supported actions/assertions and supplies
+explicit locators and expected values.
 
 The UI must show whether a capability is:
 
@@ -605,6 +616,8 @@ after deterministic status is final.
 
 The existing `Finding` remains the atomic result. v2 requires versioned
 scenario context around findings, not a replacement for the rule contract.
+The Store/PDP Inventory direction below is validated product workflow scope,
+not an additional Jira-derived scenario rule.
 
 Minimum new concepts:
 
@@ -615,6 +628,12 @@ Minimum new concepts:
 - **API contract:** approved origin and explicitly allowed JSON paths.
 - **Session reference:** encrypted secret reference; never raw credentials in
   scenario or result.
+- **PDP inventory page:** Store-owned normalized URL with source, first/last
+  seen, eligibility/status, and optional observed canonical/product identity.
+- **Store Audit:** a bounded, recorded selection of inventory pages and their
+  child PDP runs; Quick Audit remains a separate run mode.
+- **Issue:** a Store-level projection of equivalent per-page findings; it never
+  replaces the underlying Finding or evidence.
 
 The exact storage schema is an implementation decision. Do not introduce
 plugin/factory layers before a second implementation requires them.
@@ -701,6 +720,10 @@ plugin/factory layers before a second implementation requires them.
 | P0       | Bounded scenario engine               | VKZ-11458, VKZ-10706, VKZ-9803  | GA       |
 | P0       | PDP navigation/content assertion      | VKZ-11458, VKZ-10706            | GA       |
 | P0       | Strengthened invalid-price detection  | VKZ-8540, VKZ-4144              | GA       |
+| P0       | Store Catalog and PDP Inventory       | Product workflow validation     | Next     |
+| P0       | Manual bounded Store Audit            | Product workflow validation     | Next     |
+| P0       | Store Issue aggregation               | Product workflow validation     | Then     |
+| P1       | Manual monitoring/comparison          | Product workflow validation     | Then     |
 | P1       | Variant-label integrity               | VKZ-3832                        | GA       |
 | P1       | Product identity after navigation     | VKZ-4690, VKZ-4226              | GA       |
 | P1       | PLP/search filter and price scenarios | VKZ-7924, VKZ-10593, VKZ-10789  | GA       |
@@ -741,7 +764,7 @@ measurement.
 
 ## 16. Rollout plan
 
-### Phase 1 — Rule hardening
+### Completed foundation — Rule hardening
 
 - Strengthen visible-price detection.
 - Add variant-label duplicate fixtures/rule.
@@ -751,7 +774,7 @@ measurement.
 **Exit gate:** rule benchmarks pass and false positives are reviewed on a small
 real-world PDP corpus.
 
-### Phase 2 — Anonymous scenario engine
+### Completed foundation — Anonymous scenario engine
 
 - Implement validated action/assertion schema.
 - Add navigation, content fingerprint, modal Escape and reachability scenarios.
@@ -760,7 +783,24 @@ real-world PDP corpus.
 **Exit gate:** all actions remain bounded, URL-safe and reproducible on local
 fixtures; security review covers SSRF, resource exhaustion and error disclosure.
 
-### Phase 3 — PLP/search and locale
+### Phase 3 — Store Catalog, Store Audit, and Issues
+
+- Add bounded Store-scoped catalog discovery and a persisted PDP inventory.
+- Add a manual bounded Store Audit while retaining Quick Audit.
+- Aggregate Store Audit findings without changing the Finding contract.
+
+**Exit gate:** inventory and audit scope are explicit; evidence stays
+page-specific; discovery and browser work retain bounded safety controls.
+
+### Phase 4 — Monitoring and hosted delivery
+
+- Add manual refresh and comparison of compatible complete Store Audits.
+- Meet the hosted worker, identity, artifact, retention, and operational gates
+  before customer-facing hosted or scheduled execution.
+- Add scheduled monitoring and notifications only after the preceding state
+  transitions are trustworthy.
+
+### Later — PLP/search and locale
 
 - Add explicit PLP/search surface configuration.
 - Add filter apply/reset, result state and price presentation assertions.
@@ -769,7 +809,7 @@ fixtures; security review covers SSRF, resource exhaustion and error disclosure.
 **Exit gate:** benchmark includes the Jira-backed failure patterns and approved
 negative controls for legitimate unchanged states.
 
-### Phase 4 — Controlled beta
+### Later — Controlled beta
 
 - Add isolated test sessions.
 - Add variant/Add-to-Cart consistency.
