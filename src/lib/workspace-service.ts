@@ -9,7 +9,10 @@ import type {
   AuditRun,
   AuditRunReport,
   AuthenticatedUser,
+  CatalogDiscovery,
+  CatalogItem,
   Store,
+  StoreCatalog,
   WorkerCapability,
   Workspace,
   WorkspaceMember,
@@ -36,6 +39,13 @@ export class UnsafeStoreTargetError extends UnsafeUrlError {
   constructor() {
     super("The product page URL must use the store origin.");
     this.name = "UnsafeStoreTargetError";
+  }
+}
+
+export class CatalogDiscoveryDeadlineError extends Error {
+  constructor() {
+    super("Catalog discovery exceeded its time limit.");
+    this.name = "CatalogDiscoveryDeadlineError";
   }
 }
 
@@ -190,6 +200,132 @@ export class WorkspaceService {
 
   getStore(principal: AuthenticatedUser, storeId: string) {
     return this.requireStore(principal, storeId);
+  }
+
+  getStoreCatalog(principal: AuthenticatedUser, storeId: string): StoreCatalog {
+    this.requireStore(principal, storeId);
+    const discoveryRow = this.database
+      .prepare("SELECT * FROM catalog_discoveries WHERE store_id = ?")
+      .get(storeId);
+    const items = this.database
+      .prepare(
+        `SELECT * FROM catalog_items
+         WHERE store_id = ? ORDER BY active DESC, normalized_url`,
+      )
+      .all(storeId)
+      .map(catalogItemFromRow);
+    return {
+      discovery: discoveryRow
+        ? catalogDiscoveryFromRow(discoveryRow)
+        : {
+            storeId,
+            status: "not_started",
+            startedAt: null,
+            completedAt: null,
+            failureCategory: null,
+            discoveredCount: 0,
+            rejectedCount: 0,
+          },
+      items,
+    };
+  }
+
+  startCatalogDiscovery(principal: AuthenticatedUser, storeId: string) {
+    const store = this.requireStore(principal, storeId);
+    const startedAt = new Date().toISOString();
+    this.database
+      .prepare(
+        `INSERT INTO catalog_discoveries
+          (store_id, workspace_id, status, started_at, discovered_count, rejected_count)
+         VALUES (?, ?, 'running', ?, 0, 0)
+         ON CONFLICT(store_id) DO UPDATE SET
+           status = 'running', started_at = excluded.started_at,
+           completed_at = NULL, failure_category = NULL,
+           discovered_count = 0, rejected_count = 0`,
+      )
+      .run(store.id, store.workspaceId, startedAt);
+    return store;
+  }
+
+  async completeCatalogDiscovery(
+    principal: AuthenticatedUser,
+    storeId: string,
+    candidateUrls: string[],
+    deadline = Number.POSITIVE_INFINITY,
+  ) {
+    const store = this.requireStore(principal, storeId);
+    const normalizedUrls = new Set<string>();
+    let rejectedCount = 0;
+
+    const boundedCandidates = candidateUrls.slice(0, 200);
+    rejectedCount += candidateUrls.length - boundedCandidates.length;
+    for (const candidate of boundedCandidates) {
+      try {
+        // Reject a foreign origin before DNS work; same-origin URLs still pass
+        // the full public-network validation below.
+        if (new URL(candidate).origin !== store.url) {
+          rejectedCount += 1;
+          continue;
+        }
+        const url = await validateBeforeDeadline(
+          candidate,
+          this.resolver,
+          deadline,
+        );
+        normalizedUrls.add(url.href);
+      } catch (error) {
+        if (error instanceof CatalogDiscoveryDeadlineError) throw error;
+        rejectedCount += 1;
+      }
+    }
+
+    const completedAt = new Date().toISOString();
+    this.transaction(() => {
+      this.database
+        .prepare("UPDATE catalog_items SET active = 0 WHERE store_id = ?")
+        .run(store.id);
+      const upsert = this.database.prepare(
+        `INSERT INTO catalog_items
+          (id, workspace_id, store_id, normalized_url, source, first_seen_at, last_seen_at, active)
+         VALUES (?, ?, ?, ?, 'root_page_link', ?, ?, 1)
+         ON CONFLICT(store_id, normalized_url) DO UPDATE SET
+           last_seen_at = excluded.last_seen_at, active = 1`,
+      );
+      for (const normalizedUrl of normalizedUrls)
+        upsert.run(
+          randomUUID(),
+          store.workspaceId,
+          store.id,
+          normalizedUrl,
+          completedAt,
+          completedAt,
+        );
+      this.database
+        .prepare(
+          `UPDATE catalog_discoveries
+           SET status = 'succeeded', completed_at = ?, failure_category = NULL,
+               discovered_count = ?, rejected_count = ?
+           WHERE store_id = ?`,
+        )
+        .run(completedAt, normalizedUrls.size, rejectedCount, store.id);
+    });
+    return this.getStoreCatalog(principal, store.id);
+  }
+
+  failCatalogDiscovery(
+    principal: AuthenticatedUser,
+    storeId: string,
+    category: NonNullable<CatalogDiscovery["failureCategory"]>,
+  ) {
+    this.requireStore(principal, storeId);
+    this.database
+      .prepare(
+        `UPDATE catalog_discoveries
+         SET status = 'failed', completed_at = ?, failure_category = ?
+         WHERE store_id = ?`,
+      )
+      .run(new Date().toISOString(), category, storeId);
+    return this.getStoreCatalog(principal, storeId);
   }
 
   async createAuditRun(
@@ -522,6 +658,31 @@ export class WorkspaceService {
         UNIQUE (id, workspace_id),
         FOREIGN KEY (store_id, workspace_id) REFERENCES stores(id, workspace_id) ON DELETE CASCADE
       );
+      CREATE TABLE IF NOT EXISTS catalog_discoveries (
+        store_id TEXT NOT NULL,
+        workspace_id TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('running', 'succeeded', 'failed')),
+        started_at TEXT NOT NULL,
+        completed_at TEXT,
+        failure_category TEXT CHECK (failure_category IN ('infrastructure', 'timeout', 'unsafe_url')),
+        discovered_count INTEGER NOT NULL DEFAULT 0 CHECK (discovered_count >= 0),
+        rejected_count INTEGER NOT NULL DEFAULT 0 CHECK (rejected_count >= 0),
+        PRIMARY KEY (store_id),
+        FOREIGN KEY (store_id, workspace_id) REFERENCES stores(id, workspace_id) ON DELETE CASCADE
+      );
+      CREATE TABLE IF NOT EXISTS catalog_items (
+        id TEXT NOT NULL,
+        workspace_id TEXT NOT NULL,
+        store_id TEXT NOT NULL,
+        normalized_url TEXT NOT NULL,
+        source TEXT NOT NULL CHECK (source = 'root_page_link'),
+        first_seen_at TEXT NOT NULL,
+        last_seen_at TEXT NOT NULL,
+        active INTEGER NOT NULL CHECK (active IN (0, 1)),
+        PRIMARY KEY (id),
+        UNIQUE (store_id, normalized_url),
+        FOREIGN KEY (store_id, workspace_id) REFERENCES stores(id, workspace_id) ON DELETE CASCADE
+      );
       CREATE TABLE IF NOT EXISTS findings (
         id TEXT NOT NULL,
         audit_run_id TEXT NOT NULL,
@@ -548,6 +709,7 @@ export class WorkspaceService {
       CREATE INDEX IF NOT EXISTS stores_workspace ON stores(workspace_id);
       CREATE INDEX IF NOT EXISTS runs_store ON audit_runs(store_id, created_at);
       CREATE INDEX IF NOT EXISTS artifacts_run ON artifacts(audit_run_id);
+      CREATE INDEX IF NOT EXISTS catalog_items_store ON catalog_items(store_id, active);
     `);
   }
 }
@@ -563,6 +725,30 @@ function requiredName(value: string) {
   if (!name || name.length > 120)
     throw new Error("Name must be 1–120 characters.");
   return name;
+}
+
+async function validateBeforeDeadline(
+  input: string,
+  resolver: DnsResolver | undefined,
+  deadline: number,
+) {
+  if (!Number.isFinite(deadline)) return validatePublicUrl(input, resolver);
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) throw new CatalogDiscoveryDeadlineError();
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      validatePublicUrl(input, resolver),
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(
+          () => reject(new CatalogDiscoveryDeadlineError()),
+          remaining,
+        );
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
 }
 
 function tokenHash(token: string) {
@@ -629,5 +815,34 @@ function artifactFromRow(
     byteSize: Number(row.byte_size),
     sha256: String(row.sha256),
     createdAt: String(row.created_at),
+  };
+}
+
+function catalogDiscoveryFromRow(
+  row: Record<string, SQLInputValue>,
+): CatalogDiscovery {
+  return {
+    storeId: String(row.store_id),
+    status: String(row.status) as CatalogDiscovery["status"],
+    startedAt: row.started_at ? String(row.started_at) : null,
+    completedAt: row.completed_at ? String(row.completed_at) : null,
+    failureCategory: row.failure_category
+      ? (String(row.failure_category) as CatalogDiscovery["failureCategory"])
+      : null,
+    discoveredCount: Number(row.discovered_count),
+    rejectedCount: Number(row.rejected_count),
+  };
+}
+
+function catalogItemFromRow(row: Record<string, SQLInputValue>): CatalogItem {
+  return {
+    id: String(row.id),
+    workspaceId: String(row.workspace_id),
+    storeId: String(row.store_id),
+    normalizedUrl: String(row.normalized_url),
+    source: "root_page_link",
+    firstSeenAt: String(row.first_seen_at),
+    lastSeenAt: String(row.last_seen_at),
+    active: Number(row.active) === 1,
   };
 }

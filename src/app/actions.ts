@@ -4,7 +4,12 @@ import { revalidatePath } from "next/cache";
 import { redirect, unstable_rethrow } from "next/navigation";
 
 import { AuditBusyError } from "@/lib/audit-execution";
-import { createStoreForApp, executeAuditForApp } from "@/lib/app-service";
+import {
+  createStoreForApp,
+  discoverCatalogForApp,
+  executeAuditForApp,
+} from "@/lib/app-service";
+import { CatalogDiscoveryBusyError } from "@/lib/catalog-discovery";
 import { UnsafeUrlError } from "@/lib/url-safety";
 
 export interface FormActionState {
@@ -13,13 +18,21 @@ export interface FormActionState {
   values?: { name?: string; url?: string; targetUrl?: string };
 }
 
+export interface CatalogActionState {
+  error?: string;
+}
+
 export async function createStoreAction(
   _previousState: FormActionState,
   formData: FormData,
 ): Promise<FormActionState> {
   const url = text(formData, "url");
   const name = text(formData, "name");
-  if (!url) return { fieldErrors: { url: "Enter a store URL." }, values: { name, url } };
+  if (!url)
+    return {
+      fieldErrors: { url: "Enter a store URL." },
+      values: { name, url },
+    };
   if (name.length > 120)
     return {
       fieldErrors: { name: "Name must be 120 characters or fewer." },
@@ -33,7 +46,10 @@ export async function createStoreAction(
     unstable_rethrow(error);
     if (error instanceof UnsafeUrlError)
       return { fieldErrors: { url: error.message }, values: { name, url } };
-    return { error: "The store could not be added. Try again.", values: { name, url } };
+    return {
+      error: "The store could not be added. Try again.",
+      values: { name, url },
+    };
   }
 
   revalidatePath("/stores");
@@ -47,7 +63,10 @@ export async function createRunAction(
 ): Promise<FormActionState> {
   const targetUrl = text(formData, "targetUrl");
   if (!targetUrl)
-    return { fieldErrors: { targetUrl: "Enter a product page URL." }, values: { targetUrl } };
+    return {
+      fieldErrors: { targetUrl: "Enter a product page URL." },
+      values: { targetUrl },
+    };
 
   let run;
   try {
@@ -55,13 +74,47 @@ export async function createRunAction(
   } catch (error) {
     unstable_rethrow(error);
     if (error instanceof UnsafeUrlError)
-      return { fieldErrors: { targetUrl: error.message }, values: { targetUrl } };
-    if (error instanceof AuditBusyError) return { error: error.message, values: { targetUrl } };
-    return { error: "The audit could not be started. Try again.", values: { targetUrl } };
+      return {
+        fieldErrors: { targetUrl: error.message },
+        values: { targetUrl },
+      };
+    if (error instanceof AuditBusyError)
+      return { error: error.message, values: { targetUrl } };
+    return {
+      error: "The audit could not be started. Try again.",
+      values: { targetUrl },
+    };
   }
 
   revalidatePath(`/stores/${storeId}`);
   redirect(`/runs/${run.id}`);
+}
+
+export async function discoverCatalogAction(
+  storeId: string,
+  _previousState: CatalogActionState,
+): Promise<CatalogActionState> {
+  void _previousState;
+  try {
+    const catalog = await discoverCatalogForApp(storeId);
+    revalidatePath(`/stores/${storeId}`);
+    revalidatePath(`/stores/${storeId}/catalog`);
+    if (catalog.discovery.status === "failed")
+      return {
+        error:
+          catalog.discovery.failureCategory === "unsafe_url"
+            ? "Discovery stopped because the store navigation was unsafe."
+            : catalog.discovery.failureCategory === "timeout"
+              ? "Discovery timed out. Try again."
+              : "Discovery could not load the store. Try again.",
+      };
+    return {};
+  } catch (error) {
+    unstable_rethrow(error);
+    if (error instanceof CatalogDiscoveryBusyError)
+      return { error: error.message };
+    return { error: "Discovery could not be started. Try again." };
+  }
 }
 
 function text(formData: FormData, name: string) {

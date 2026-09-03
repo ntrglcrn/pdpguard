@@ -1,4 +1,4 @@
-import { ExternalLink, Play } from "lucide-react";
+import { ExternalLink, Search, Zap } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
@@ -52,20 +52,27 @@ export default async function StorePage({
             <ExternalLink className="size-3 shrink-0" aria-hidden="true" />
           </a>
         </div>
-        <Button asChild>
-          <Link href={`/stores/${store.id}/runs/new`}>
-            <Play data-icon="inline-start" aria-hidden="true" /> Run audit
-          </Link>
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button asChild>
+            <Link href={`/stores/${store.id}/catalog`}>
+              <Search data-icon="inline-start" aria-hidden="true" /> Catalog
+            </Link>
+          </Button>
+          <Button variant="outline" asChild>
+            <Link href={`/stores/${store.id}/runs/new`}>
+              <Zap data-icon="inline-start" aria-hidden="true" /> Quick audit
+            </Link>
+          </Button>
+        </div>
       </div>
 
       <section aria-labelledby="runs-title" className="space-y-4">
         <div>
           <h2 id="runs-title" className="font-heading text-xl font-semibold">
-            Recent runs
+            Quick Audit runs
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Persisted audit history for this store.
+            Persisted single-page audit history for this store.
           </p>
         </div>
         {runs.length ? (

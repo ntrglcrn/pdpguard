@@ -2,19 +2,20 @@
 
 **Baseline:** `main` after roadmap reconciliation (`7284a80`).
 
-**Focus:** Catalog Discovery and PDP Inventory SaaS v1. Its immediate dependency
-is bounded, Store-scoped discovery and persisted inventory; do not begin Store
-Audit, Issues, or Monitoring first.
+**Focus:** Store Audit v1. Catalog Discovery and PDP Inventory SaaS v1 are
+complete; retain their bounds and tenant scope while adding an explicit,
+manual inventory selection for Store Audit.
 
 **Done:** deterministic audit/rule/evidence model; scenario primitive; SaaS
-Frontend v1; Store persistence; Quick Audit runs/findings; protected artifacts;
-local session/bootstrap; CI and benchmark foundation.
+Frontend v1; Store persistence; bounded Store Catalog/PDP Inventory discovery;
+Quick Audit runs/findings; protected artifacts; local session/bootstrap; CI and
+benchmark foundation.
 
-**Verify before reuse:** no complete Catalog Discovery workflow is assumed.
-Confirm any claimed discovery primitive against the current tree and roadmap.
+**Catalog boundary:** discovery is Store-scoped and bounded; preserve exact URL
+deduplication, same-origin/SSRF checks, and inactive-on-missing semantics.
 
-**Not done:** Store Catalog/PDP Inventory workflow, Store Audit, issue
-aggregation, monitoring, and hosted production auth/database/storage/execution.
+**Not done:** Store Audit, issue aggregation, monitoring, and hosted production
+auth/database/storage/execution.
 
 **Workflow:** Store → Catalog Discovery → PDP Inventory → Store Audit → Issues
 → Monitoring. Specific PDP URL → Run → Findings/Evidence is secondary Quick

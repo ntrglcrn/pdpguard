@@ -19,20 +19,21 @@ findings, and authorized screenshots. SQLite stores the ownership chain
 Workspace → Store → Audit Run → Finding / Artifact. The deterministic audit and
 bounded scenario engines, stable PDP rules, benchmark, and CI are present.
 
-This is not yet a store-quality workflow:
+The primary Store workflow has its catalog foundation, but is not yet a
+store-quality workflow:
 
-- **Catalog Discovery:** not implemented. There is no discovery mechanism,
-  Store relationship, persisted catalog, URL deduplication, product identity,
-  refresh, SaaS UI, or audit orchestration for it.
-- **PDP Inventory:** not implemented. A run records a target URL, but there is
-  no discovered-PDP domain model or audit history attached to a product/page.
+- **Catalog Discovery and PDP Inventory:** implemented locally. A Store-scoped,
+  bounded root-page link discovery persists exact normalized same-origin PDP
+  URLs, source, first/last seen, active/missing state and discovery outcome in
+  the SaaS UI. Product identity/canonical observation is intentionally absent:
+  the current mechanism cannot determine it reliably.
 - **Store Audit:** not implemented. Despite its internal function name,
   `executeStoreAudit` persists one synchronous manual PDP Quick Audit; it cannot
   select or audit an inventory.
 - **Issues:** not implemented. Findings are correctly one rule/problem on one
   run, but there is no cross-PDP aggregation or lifecycle state.
-- **Monitoring:** not implemented. There is no catalog refresh, comparison,
-  schedule, notification, or integration.
+- **Monitoring:** not implemented. Manual catalog refresh exists, but there is
+  no comparison, schedule, notification, or integration.
 
 The scenario engine is implemented and browser-fixture tested, but is not wired
 to the SaaS runner, persistence, or UI. It is an engine primitive, not a
@@ -178,9 +179,8 @@ Audit.
 
 ## Current focus
 
-**Catalog Discovery and PDP Inventory v1:** bounded Store-scoped discovery plus
-a persisted PDP inventory. It is the first missing capability in the primary
-workflow.
+**Store Audit v1:** run the existing PDP audit over an explicit, bounded Store
+inventory selection while retaining Quick Audit.
 
 ## Release gates
 

@@ -7,6 +7,7 @@ import { redirect } from "next/navigation";
 
 import type { AuthenticatedUser } from "@/domain/saas";
 import { executeStoreAudit } from "@/lib/audit-execution";
+import { executeCatalogDiscovery } from "@/lib/catalog-discovery";
 import {
   AuthorizationError,
   SESSION_COOKIE_NAME,
@@ -61,6 +62,18 @@ export async function getStoreForApp(storeId: string) {
   }
 }
 
+export async function getStoreCatalogForApp(storeId: string) {
+  const service = getWorkspaceService();
+  const principal = await getPrincipal(`/stores/${storeId}/catalog`);
+  try {
+    const store = service.getStore(principal, storeId);
+    return { store, catalog: service.getStoreCatalog(principal, store.id) };
+  } catch (error) {
+    if (error instanceof AuthorizationError) return null;
+    throw error;
+  }
+}
+
 export async function getRunForApp(runId: string) {
   const service = getWorkspaceService();
   const principal = await getPrincipal(`/runs/${runId}`);
@@ -88,6 +101,15 @@ export async function executeAuditForApp(storeId: string, targetUrl: string) {
     await getPrincipal(`/stores/${storeId}/runs/new`),
     storeId,
     targetUrl,
+  );
+}
+
+export async function discoverCatalogForApp(storeId: string) {
+  const service = getWorkspaceService();
+  return executeCatalogDiscovery(
+    service,
+    await getPrincipal(`/stores/${storeId}/catalog`),
+    storeId,
   );
 }
 

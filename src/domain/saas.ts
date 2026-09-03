@@ -3,6 +3,8 @@ import type { AuditResult, Finding } from "@/domain/audit";
 export type WorkspaceRole = "owner" | "member";
 export type AuditRunStatus =
   "queued" | "running" | "completed" | "failed" | "cancelled";
+export type CatalogDiscoveryStatus =
+  "not_started" | "running" | "succeeded" | "failed";
 
 export interface AuthenticatedUser {
   kind: "user";
@@ -34,6 +36,32 @@ export interface Store {
   name: string;
   url: string;
   createdAt: string;
+}
+
+export interface CatalogItem {
+  id: string;
+  workspaceId: string;
+  storeId: string;
+  normalizedUrl: string;
+  source: "root_page_link";
+  firstSeenAt: string;
+  lastSeenAt: string;
+  active: boolean;
+}
+
+export interface CatalogDiscovery {
+  storeId: string;
+  status: CatalogDiscoveryStatus;
+  startedAt: string | null;
+  completedAt: string | null;
+  failureCategory: "infrastructure" | "timeout" | "unsafe_url" | null;
+  discoveredCount: number;
+  rejectedCount: number;
+}
+
+export interface StoreCatalog {
+  discovery: CatalogDiscovery;
+  items: CatalogItem[];
 }
 
 export interface AuditRun {
