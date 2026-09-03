@@ -28,41 +28,109 @@ export async function withAuditSlot<T>(operation: () => Promise<T>) {
   }
 }
 
-export async function executeStoreAudit(
+export async function executeQuickAudit(
   service: WorkspaceService,
   principal: AuthenticatedUser,
   storeId: string,
   targetUrl: string,
   createRunner: RunnerFactory = (storage) => new PlaywrightAuditRunner(storage),
 ) {
+  return withAuditSlot(() =>
+    executePdpAudit(service, principal, storeId, targetUrl, createRunner),
+  );
+}
+
+/** Compatibility for callers that still use the former Quick Audit name. */
+export const executeStoreAudit = executeQuickAudit;
+
+export async function executeCatalogStoreAudit(
+  service: WorkspaceService,
+  principal: AuthenticatedUser,
+  storeId: string,
+  createRunner: RunnerFactory = (storage) => new PlaywrightAuditRunner(storage),
+) {
   return withAuditSlot(async () => {
-    const { run, worker } = await service.createAuditRun(
+    const { run: parent, items } = service.createStoreAuditRun(
       principal,
       storeId,
-      targetUrl,
     );
-    service.startAuditRun(worker);
-    const storage = new CapturedScreenshotStorage();
-
     try {
-      const result = await createRunner(storage).run(run.targetUrl);
-      const contents = await storage.read(result.screenshot.id);
-      if (!contents) throw new Error("The audit screenshot was not captured.");
-      return service.completeAuditRun(worker, result, {
-        id: result.screenshot.id,
-        contents,
-      });
-    } catch (error) {
-      return service.failAuditRun(
-        worker,
-        error instanceof UnsafeUrlError
-          ? "unsafe_url"
-          : error instanceof AuditTimeoutError
-            ? "timeout"
-            : "infrastructure",
-      );
+      for (const item of items) {
+        try {
+          const child = await executePdpAudit(
+            service,
+            principal,
+            storeId,
+            item.normalizedUrl,
+            createRunner,
+            (auditRunId) =>
+              service.linkStoreAuditRunItem(
+                principal,
+                parent.id,
+                item.id,
+                auditRunId,
+              ),
+          );
+          if (child.status === "failed")
+            service.recordStoreAuditItemFailure(
+              principal,
+              parent.id,
+              item.id,
+              child.failureCategory ?? "infrastructure",
+            );
+          service.refreshStoreAuditProgress(parent.id);
+        } catch (error) {
+          service.recordStoreAuditItemFailure(
+            principal,
+            parent.id,
+            item.id,
+            failureCategory(error),
+          );
+        }
+      }
+      return service.completeStoreAuditRun(principal, parent.id);
+    } catch {
+      return service.failStoreAuditRun(principal, parent.id);
     }
   });
+}
+
+async function executePdpAudit(
+  service: WorkspaceService,
+  principal: AuthenticatedUser,
+  storeId: string,
+  targetUrl: string,
+  createRunner: RunnerFactory,
+  onCreated?: (auditRunId: string) => void,
+) {
+  const { run, worker } = await service.createAuditRun(
+    principal,
+    storeId,
+    targetUrl,
+  );
+  onCreated?.(run.id);
+  service.startAuditRun(worker);
+  const storage = new CapturedScreenshotStorage();
+
+  try {
+    const result = await createRunner(storage).run(run.targetUrl);
+    const contents = await storage.read(result.screenshot.id);
+    if (!contents) throw new Error("The audit screenshot was not captured.");
+    return service.completeAuditRun(worker, result, {
+      id: result.screenshot.id,
+      contents,
+    });
+  } catch (error) {
+    return service.failAuditRun(worker, failureCategory(error));
+  }
+}
+
+function failureCategory(error: unknown) {
+  return error instanceof UnsafeUrlError
+    ? ("unsafe_url" as const)
+    : error instanceof AuditTimeoutError
+      ? ("timeout" as const)
+      : ("infrastructure" as const);
 }
 
 class CapturedScreenshotStorage implements ScreenshotStorage {

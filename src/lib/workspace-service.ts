@@ -12,6 +12,10 @@ import type {
   CatalogDiscovery,
   CatalogItem,
   Store,
+  StoreAuditRun,
+  StoreAuditRunItem,
+  StoreAuditRunReport,
+  StoreIssue,
   StoreCatalog,
   WorkerCapability,
   Workspace,
@@ -27,6 +31,8 @@ import {
 export const SESSION_COOKIE_NAME = "pdpguard_session";
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1_000;
 const MAX_ARTIFACT_BYTES = 10 * 1_024 * 1_024;
+export const STORE_AUDIT_MAX_PDPS = 5;
+export const STORE_AUDIT_RULESET_VERSION = "pdp-rules-v1";
 
 export class AuthorizationError extends Error {
   constructor() {
@@ -46,6 +52,13 @@ export class CatalogDiscoveryDeadlineError extends Error {
   constructor() {
     super("Catalog discovery exceeded its time limit.");
     this.name = "CatalogDiscoveryDeadlineError";
+  }
+}
+
+export class EmptyStoreCatalogError extends Error {
+  constructor() {
+    super("Discover active product pages before running a Store Audit.");
+    this.name = "EmptyStoreCatalogError";
   }
 }
 
@@ -477,10 +490,256 @@ export class WorkspaceService {
     this.requireStore(principal, storeId);
     return this.database
       .prepare(
-        "SELECT * FROM audit_runs WHERE store_id = ? ORDER BY created_at DESC",
+        `SELECT r.* FROM audit_runs r
+         WHERE r.store_id = ? AND NOT EXISTS (
+           SELECT 1 FROM store_audit_run_items i WHERE i.audit_run_id = r.id
+         ) ORDER BY r.created_at DESC`,
       )
       .all(storeId)
       .map(runFromRow);
+  }
+
+  createStoreAuditRun(principal: AuthenticatedUser, storeId: string) {
+    const store = this.requireStore(principal, storeId);
+    const selected = this.database
+      .prepare(
+        `SELECT id, normalized_url FROM catalog_items
+         WHERE store_id = ? AND active = 1
+         ORDER BY normalized_url, id LIMIT ?`,
+      )
+      .all(storeId, STORE_AUDIT_MAX_PDPS) as Record<string, SQLInputValue>[];
+    if (!selected.length) throw new EmptyStoreCatalogError();
+
+    const startedAt = new Date().toISOString();
+    const run: StoreAuditRun = {
+      id: randomUUID(),
+      workspaceId: store.workspaceId,
+      storeId,
+      status: "running",
+      selectionMode: "automatic_bounded_active_catalog_v1",
+      selectionSignature: createHash("sha256")
+        .update(
+          JSON.stringify(
+            selected.map((item) => [item.id, item.normalized_url]),
+          ),
+        )
+        .digest("hex"),
+      rulesetVersion: STORE_AUDIT_RULESET_VERSION,
+      selectedPdpCount: selected.length,
+      completedPdpCount: 0,
+      failedPdpCount: 0,
+      startedAt,
+      completedAt: null,
+      summary: null,
+    };
+    const items: StoreAuditRunItem[] = selected.map((item, position) => ({
+      id: randomUUID(),
+      storeAuditRunId: run.id,
+      catalogItemId: String(item.id),
+      normalizedUrl: String(item.normalized_url),
+      position,
+      auditRunId: null,
+      failureCategory: null,
+    }));
+    this.transaction(() => {
+      this.database
+        .prepare(
+          `INSERT INTO store_audit_runs
+            (id, workspace_id, store_id, status, selection_mode, selection_signature,
+             ruleset_version, selected_pdp_count, completed_pdp_count,
+             failed_pdp_count, started_at)
+           VALUES (?, ?, ?, 'running', ?, ?, ?, ?, 0, 0, ?)`,
+        )
+        .run(
+          run.id,
+          run.workspaceId,
+          run.storeId,
+          run.selectionMode,
+          run.selectionSignature,
+          run.rulesetVersion,
+          run.selectedPdpCount,
+          run.startedAt,
+        );
+      const insert = this.database.prepare(
+        `INSERT INTO store_audit_run_items
+          (id, store_audit_run_id, workspace_id, store_id, catalog_item_id,
+           normalized_url, position)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      );
+      for (const item of items)
+        insert.run(
+          item.id,
+          run.id,
+          run.workspaceId,
+          run.storeId,
+          item.catalogItemId,
+          item.normalizedUrl,
+          item.position,
+        );
+    });
+    return { run, items };
+  }
+
+  linkStoreAuditRunItem(
+    principal: AuthenticatedUser,
+    storeAuditRunId: string,
+    itemId: string,
+    auditRunId: string,
+  ) {
+    const parent = this.requireStoreAuditRun(principal, storeAuditRunId);
+    if (parent.status !== "running") throw new AuthorizationError();
+    const result = this.database
+      .prepare(
+        `UPDATE store_audit_run_items SET audit_run_id = ?
+         WHERE id = ? AND store_audit_run_id = ? AND workspace_id = ?
+           AND store_id = ? AND audit_run_id IS NULL
+           AND EXISTS (
+             SELECT 1 FROM audit_runs r
+             WHERE r.id = ? AND r.workspace_id = ? AND r.store_id = ?
+           )`,
+      )
+      .run(
+        auditRunId,
+        itemId,
+        parent.id,
+        parent.workspaceId,
+        parent.storeId,
+        auditRunId,
+        parent.workspaceId,
+        parent.storeId,
+      );
+    if (result.changes !== 1) throw new AuthorizationError();
+  }
+
+  recordStoreAuditItemFailure(
+    principal: AuthenticatedUser,
+    storeAuditRunId: string,
+    itemId: string,
+    category: NonNullable<AuditRun["failureCategory"]>,
+  ) {
+    const parent = this.requireStoreAuditRun(principal, storeAuditRunId);
+    if (parent.status !== "running") throw new AuthorizationError();
+    const result = this.database
+      .prepare(
+        `UPDATE store_audit_run_items SET failure_category = ?
+         WHERE id = ? AND store_audit_run_id = ? AND failure_category IS NULL`,
+      )
+      .run(category, itemId, parent.id);
+    if (result.changes !== 1) throw new AuthorizationError();
+    return this.refreshStoreAuditProgress(parent.id);
+  }
+
+  refreshStoreAuditProgress(storeAuditRunId: string) {
+    const counts = this.database
+      .prepare(
+        `SELECT
+           SUM(CASE WHEN r.status = 'completed' THEN 1 ELSE 0 END) AS completed,
+           SUM(CASE WHEN i.failure_category IS NOT NULL OR r.status = 'failed' THEN 1 ELSE 0 END) AS failed
+         FROM store_audit_run_items i
+         LEFT JOIN audit_runs r ON r.id = i.audit_run_id
+         WHERE i.store_audit_run_id = ?`,
+      )
+      .get(storeAuditRunId) as Record<string, SQLInputValue>;
+    this.database
+      .prepare(
+        `UPDATE store_audit_runs SET completed_pdp_count = ?, failed_pdp_count = ?
+         WHERE id = ? AND status = 'running'`,
+      )
+      .run(Number(counts.completed ?? 0), Number(counts.failed ?? 0), storeAuditRunId);
+    return this.readStoreAuditRun(storeAuditRunId);
+  }
+
+  completeStoreAuditRun(
+    principal: AuthenticatedUser,
+    storeAuditRunId: string,
+  ) {
+    let run = this.requireStoreAuditRun(principal, storeAuditRunId);
+    if (run.status !== "running") throw new AuthorizationError();
+    run = this.refreshStoreAuditProgress(run.id);
+    const status =
+      run.completedPdpCount === run.selectedPdpCount
+        ? "completed"
+        : run.completedPdpCount > 0
+          ? "completed_with_failures"
+          : "failed";
+    const issueRows = this.issueRows(run.id);
+    const summary = {
+      issueCount: new Set(issueRows.map((row) => String(row.rule_id))).size,
+      criticalCount: new Set(
+        issueRows
+          .filter((row) => JSON.parse(String(row.payload_json)).severity === "critical")
+          .map((row) => String(row.rule_id)),
+      ).size,
+      warningCount: new Set(
+        issueRows
+          .filter((row) => JSON.parse(String(row.payload_json)).severity === "warning")
+          .map((row) => String(row.rule_id)),
+      ).size,
+    };
+    this.database
+      .prepare(
+        `UPDATE store_audit_runs
+         SET status = ?, completed_at = ?, summary_json = ? WHERE id = ?`,
+      )
+      .run(status, new Date().toISOString(), JSON.stringify(summary), run.id);
+    return this.getStoreAuditRun(principal, run.id);
+  }
+
+  failStoreAuditRun(
+    principal: AuthenticatedUser,
+    storeAuditRunId: string,
+  ) {
+    let run = this.requireStoreAuditRun(principal, storeAuditRunId);
+    if (run.status !== "running") return run;
+    this.database
+      .prepare(
+        `UPDATE store_audit_run_items SET failure_category = 'infrastructure'
+         WHERE store_audit_run_id = ? AND failure_category IS NULL
+           AND NOT EXISTS (
+             SELECT 1 FROM audit_runs r
+             WHERE r.id = store_audit_run_items.audit_run_id
+               AND r.status = 'completed'
+           )`,
+      )
+      .run(run.id);
+    run = this.refreshStoreAuditProgress(run.id);
+    const status =
+      run.completedPdpCount === run.selectedPdpCount
+        ? "completed"
+        : run.completedPdpCount > 0
+          ? "completed_with_failures"
+          : "failed";
+    this.database
+      .prepare(
+        `UPDATE store_audit_runs SET status = ?, completed_at = ?
+         WHERE id = ? AND status = 'running'`,
+      )
+      .run(status, new Date().toISOString(), run.id);
+    return this.readStoreAuditRun(run.id);
+  }
+
+  listStoreAuditRuns(principal: AuthenticatedUser, storeId: string) {
+    this.requireStore(principal, storeId);
+    return this.database
+      .prepare(
+        "SELECT * FROM store_audit_runs WHERE store_id = ? ORDER BY started_at DESC, id DESC",
+      )
+      .all(storeId)
+      .map(storeAuditRunFromRow);
+  }
+
+  getStoreAuditRun(
+    principal: AuthenticatedUser,
+    storeAuditRunId: string,
+  ): StoreAuditRunReport {
+    const run = this.requireStoreAuditRun(principal, storeAuditRunId);
+    const items = this.database
+      .prepare(
+        "SELECT * FROM store_audit_run_items WHERE store_audit_run_id = ? ORDER BY position",
+      )
+      .all(run.id)
+      .map(storeAuditRunItemFromRow);
+    return { ...run, items, issues: this.storeIssues(run) };
   }
 
   getAuditRun(principal: AuthenticatedUser, runId: string): AuditRunReport {
@@ -577,6 +836,139 @@ export class WorkspaceService {
       .get(runId, principal.userId);
     if (!row) throw new AuthorizationError();
     return runFromRow(row);
+  }
+
+  private requireStoreAuditRun(
+    principal: AuthenticatedUser,
+    storeAuditRunId: string,
+  ) {
+    this.requireAuthenticated(principal);
+    const row = this.database
+      .prepare(
+        `SELECT r.* FROM store_audit_runs r
+         JOIN stores s ON s.id = r.store_id AND s.workspace_id = r.workspace_id
+         JOIN workspace_members m ON m.workspace_id = r.workspace_id
+         WHERE r.id = ? AND m.user_id = ?`,
+      )
+      .get(storeAuditRunId, principal.userId);
+    if (!row) throw new AuthorizationError();
+    return storeAuditRunFromRow(row);
+  }
+
+  private readStoreAuditRun(storeAuditRunId: string) {
+    const row = this.database
+      .prepare("SELECT * FROM store_audit_runs WHERE id = ?")
+      .get(storeAuditRunId);
+    if (!row) throw new AuthorizationError();
+    return storeAuditRunFromRow(row);
+  }
+
+  private issueRows(storeAuditRunId: string) {
+    return this.database
+      .prepare(
+        `SELECT f.payload_json, f.rule_id, i.catalog_item_id,
+                i.normalized_url, i.audit_run_id, r.result_json
+         FROM store_audit_run_items i
+         JOIN audit_runs r ON r.id = i.audit_run_id AND r.status = 'completed'
+         JOIN findings f ON f.audit_run_id = r.id
+         WHERE i.store_audit_run_id = ?
+           AND json_extract(f.payload_json, '$.status') = 'failed'
+         ORDER BY i.position, f.rowid`,
+      )
+      .all(storeAuditRunId) as Record<string, SQLInputValue>[];
+  }
+
+  private storeIssues(run: StoreAuditRun): StoreIssue[] {
+    const aggregate = (sourceRunId: string, auditedPdpCount: number) => {
+      const issues = new Map<string, StoreIssue>();
+      for (const row of this.issueRows(sourceRunId)) {
+        const finding = {
+          ...(JSON.parse(String(row.payload_json)) as AuditResult["findings"][number]),
+          auditRunId: String(row.audit_run_id),
+        };
+        const issue = issues.get(finding.ruleId) ?? {
+          ruleId: finding.ruleId,
+          severity: finding.severity,
+          title: finding.title,
+          affectedPdpCount: 0,
+          auditedPdpCount,
+          lifecycle: run.status === "completed" ? ("new" as const) : null,
+          affectedPdps: [],
+        };
+        issue.affectedPdps.push({
+          catalogItemId: String(row.catalog_item_id),
+          normalizedUrl: String(row.normalized_url),
+          auditRunId: String(row.audit_run_id),
+          pageTitle: row.result_json
+            ? String(JSON.parse(String(row.result_json)).pageTitle ?? "")
+            : "",
+          finding,
+          artifacts: this.database
+            .prepare(
+              `SELECT id, audit_run_id, kind, content_type, byte_size, sha256, created_at
+               FROM artifacts WHERE audit_run_id = ?`,
+            )
+            .all(String(row.audit_run_id))
+            .map(artifactFromRow),
+        });
+        issue.affectedPdpCount = issue.affectedPdps.length;
+        issues.set(finding.ruleId, issue);
+      }
+      return issues;
+    };
+
+    const current = aggregate(run.id, run.completedPdpCount);
+    if (run.status !== "completed") return [...current.values()];
+    const previousRow = this.database
+      .prepare(
+        `SELECT * FROM store_audit_runs
+         WHERE store_id = ? AND id <> ? AND status = 'completed'
+           AND selection_signature = ? AND ruleset_version = ?
+           AND started_at <= ?
+         ORDER BY started_at DESC, id DESC LIMIT 1`,
+      )
+      .get(
+        run.storeId,
+        run.id,
+        run.selectionSignature,
+        run.rulesetVersion,
+        run.startedAt,
+      );
+    if (!previousRow) return [...current.values()];
+    const previous = storeAuditRunFromRow(previousRow);
+    const priorIssues = aggregate(previous.id, run.completedPdpCount);
+    for (const issue of current.values()) {
+      if (priorIssues.has(issue.ruleId)) issue.lifecycle = "unchanged";
+      else {
+        const appearedBefore = this.database
+          .prepare(
+            `SELECT 1 FROM store_audit_runs sr
+             JOIN store_audit_run_items i ON i.store_audit_run_id = sr.id
+             JOIN findings f ON f.audit_run_id = i.audit_run_id
+             WHERE sr.store_id = ? AND sr.status = 'completed'
+               AND sr.selection_signature = ? AND sr.ruleset_version = ?
+               AND sr.started_at < ? AND f.rule_id = ?
+               AND json_extract(f.payload_json, '$.status') = 'failed' LIMIT 1`,
+          )
+          .get(
+            run.storeId,
+            run.selectionSignature,
+            run.rulesetVersion,
+            previous.startedAt,
+            issue.ruleId,
+          );
+        issue.lifecycle = appearedBefore ? "regressed" : "new";
+      }
+    }
+    for (const [ruleId, issue] of priorIssues)
+      if (!current.has(ruleId)) {
+        issue.lifecycle = "resolved";
+        issue.auditedPdpCount = run.completedPdpCount;
+        issue.affectedPdpCount = 0;
+        issue.affectedPdps = [];
+        current.set(ruleId, issue);
+      }
+    return [...current.values()].sort((a, b) => a.ruleId.localeCompare(b.ruleId));
   }
 
   private requireWorker(
@@ -683,6 +1075,42 @@ export class WorkspaceService {
         UNIQUE (store_id, normalized_url),
         FOREIGN KEY (store_id, workspace_id) REFERENCES stores(id, workspace_id) ON DELETE CASCADE
       );
+      CREATE TABLE IF NOT EXISTS store_audit_runs (
+        id TEXT NOT NULL,
+        workspace_id TEXT NOT NULL,
+        store_id TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('running', 'completed', 'completed_with_failures', 'failed')),
+        selection_mode TEXT NOT NULL CHECK (selection_mode = 'automatic_bounded_active_catalog_v1'),
+        selection_signature TEXT NOT NULL,
+        ruleset_version TEXT NOT NULL,
+        selected_pdp_count INTEGER NOT NULL CHECK (selected_pdp_count BETWEEN 1 AND 5),
+        completed_pdp_count INTEGER NOT NULL DEFAULT 0 CHECK (completed_pdp_count >= 0),
+        failed_pdp_count INTEGER NOT NULL DEFAULT 0 CHECK (failed_pdp_count >= 0),
+        started_at TEXT NOT NULL,
+        completed_at TEXT,
+        summary_json TEXT,
+        PRIMARY KEY (id),
+        UNIQUE (id, workspace_id),
+        FOREIGN KEY (store_id, workspace_id) REFERENCES stores(id, workspace_id) ON DELETE CASCADE
+      );
+      CREATE TABLE IF NOT EXISTS store_audit_run_items (
+        id TEXT NOT NULL,
+        store_audit_run_id TEXT NOT NULL,
+        workspace_id TEXT NOT NULL,
+        store_id TEXT NOT NULL,
+        catalog_item_id TEXT NOT NULL,
+        normalized_url TEXT NOT NULL,
+        position INTEGER NOT NULL CHECK (position >= 0 AND position < 5),
+        audit_run_id TEXT,
+        failure_category TEXT CHECK (failure_category IN ('infrastructure', 'timeout', 'unsafe_url')),
+        PRIMARY KEY (id),
+        UNIQUE (store_audit_run_id, position),
+        UNIQUE (store_audit_run_id, catalog_item_id),
+        UNIQUE (audit_run_id),
+        FOREIGN KEY (store_audit_run_id, workspace_id) REFERENCES store_audit_runs(id, workspace_id) ON DELETE CASCADE,
+        FOREIGN KEY (catalog_item_id) REFERENCES catalog_items(id),
+        FOREIGN KEY (audit_run_id, workspace_id) REFERENCES audit_runs(id, workspace_id)
+      );
       CREATE TABLE IF NOT EXISTS findings (
         id TEXT NOT NULL,
         audit_run_id TEXT NOT NULL,
@@ -710,6 +1138,8 @@ export class WorkspaceService {
       CREATE INDEX IF NOT EXISTS runs_store ON audit_runs(store_id, created_at);
       CREATE INDEX IF NOT EXISTS artifacts_run ON artifacts(audit_run_id);
       CREATE INDEX IF NOT EXISTS catalog_items_store ON catalog_items(store_id, active);
+      CREATE INDEX IF NOT EXISTS store_audit_runs_store ON store_audit_runs(store_id, started_at);
+      CREATE INDEX IF NOT EXISTS store_audit_items_parent ON store_audit_run_items(store_audit_run_id, position);
     `);
   }
 }
@@ -844,5 +1274,43 @@ function catalogItemFromRow(row: Record<string, SQLInputValue>): CatalogItem {
     firstSeenAt: String(row.first_seen_at),
     lastSeenAt: String(row.last_seen_at),
     active: Number(row.active) === 1,
+  };
+}
+
+function storeAuditRunFromRow(
+  row: Record<string, SQLInputValue>,
+): StoreAuditRun {
+  return {
+    id: String(row.id),
+    workspaceId: String(row.workspace_id),
+    storeId: String(row.store_id),
+    status: String(row.status) as StoreAuditRun["status"],
+    selectionMode: "automatic_bounded_active_catalog_v1",
+    selectionSignature: String(row.selection_signature),
+    rulesetVersion: String(row.ruleset_version),
+    selectedPdpCount: Number(row.selected_pdp_count),
+    completedPdpCount: Number(row.completed_pdp_count),
+    failedPdpCount: Number(row.failed_pdp_count),
+    startedAt: String(row.started_at),
+    completedAt: row.completed_at ? String(row.completed_at) : null,
+    summary: row.summary_json
+      ? (JSON.parse(String(row.summary_json)) as NonNullable<StoreAuditRun["summary"]>)
+      : null,
+  };
+}
+
+function storeAuditRunItemFromRow(
+  row: Record<string, SQLInputValue>,
+): StoreAuditRunItem {
+  return {
+    id: String(row.id),
+    storeAuditRunId: String(row.store_audit_run_id),
+    catalogItemId: String(row.catalog_item_id),
+    normalizedUrl: String(row.normalized_url),
+    position: Number(row.position),
+    auditRunId: row.audit_run_id ? String(row.audit_run_id) : null,
+    failureCategory: row.failure_category
+      ? (String(row.failure_category) as StoreAuditRunItem["failureCategory"])
+      : null,
   };
 }

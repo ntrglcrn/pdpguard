@@ -61,6 +61,23 @@ function result(): AuditResult {
   };
 }
 
+function failedResult(ruleId: string, screenshotId: string): AuditResult {
+  return {
+    ...result(),
+    screenshot: { id: screenshotId, url: `/api/artifacts/${screenshotId}` },
+    summary: { status: "warning", counts: { critical: 0, warning: 1, passed: 0 } },
+    findings: [
+      {
+        ...result().findings[0],
+        id: ruleId,
+        ruleId,
+        status: "failed",
+        severity: "warning",
+      },
+    ],
+  };
+}
+
 describe("WorkspaceService", () => {
   it("keeps production sessions Secure and supports an explicit local bootstrap cookie", () => {
     const { value } = service();
@@ -221,6 +238,101 @@ describe("WorkspaceService", () => {
         url: "http://localhost:3000",
       }),
     ).rejects.toThrow(UnsafeUrlError);
+    value.close();
+  });
+
+  it("snapshots at most five active catalog PDPs in stable URL order", async () => {
+    const { value } = service();
+    const principal = value.authenticateSession(value.issueSession("owner").token);
+    const workspace = value.createWorkspace(principal, "Acme");
+    const store = await value.createStore(principal, workspace.id, {
+      url: "https://example.com",
+    });
+    value.startCatalogDiscovery(principal, store.id);
+    await value.completeCatalogDiscovery(principal, store.id, [
+      "https://example.com/z",
+      "https://example.com/a",
+      "https://example.com/e",
+      "https://example.com/b",
+      "https://example.com/d",
+      "https://example.com/c",
+    ]);
+
+    const { run, items } = value.createStoreAuditRun(principal, store.id);
+    expect(run.selectedPdpCount).toBe(5);
+    expect(items.map((item) => item.normalizedUrl)).toEqual([
+      "https://example.com/a",
+      "https://example.com/b",
+      "https://example.com/c",
+      "https://example.com/d",
+      "https://example.com/e",
+    ]);
+    value.close();
+  });
+
+  it("keeps Store Audit children out of Quick Audit history and persists partial progress", async () => {
+    const { value } = service();
+    const principal = value.authenticateSession(value.issueSession("owner").token);
+    const workspace = value.createWorkspace(principal, "Acme");
+    const store = await value.createStore(principal, workspace.id, {
+      url: "https://example.com",
+    });
+    value.startCatalogDiscovery(principal, store.id);
+    await value.completeCatalogDiscovery(principal, store.id, [
+      "https://example.com/a",
+      "https://example.com/b",
+    ]);
+    const { run: parent, items } = value.createStoreAuditRun(principal, store.id);
+    const { run: child, worker } = await value.createAuditRun(
+      principal,
+      store.id,
+      items[0].normalizedUrl,
+    );
+    value.linkStoreAuditRunItem(principal, parent.id, items[0].id, child.id);
+    value.startAuditRun(worker);
+    value.completeAuditRun(worker, { ...result(), auditedUrl: child.targetUrl, finalUrl: child.targetUrl, screenshot: { id: "child-artifact", url: "/api/artifacts/child-artifact" } }, { id: "child-artifact", contents: Buffer.from("screenshot") });
+    value.recordStoreAuditItemFailure(principal, parent.id, items[1].id, "timeout");
+    const report = value.completeStoreAuditRun(principal, parent.id);
+
+    expect(report).toMatchObject({ status: "completed_with_failures", completedPdpCount: 1, failedPdpCount: 1 });
+    expect(value.listAuditRuns(principal, store.id)).toEqual([]);
+    expect(report.items[0].auditRunId).toBe(child.id);
+    expect(report.items[1].failureCategory).toBe("timeout");
+    value.close();
+  });
+
+  it("tracks only comparable complete Store Audit issue lifecycle", async () => {
+    const { value } = service();
+    const principal = value.authenticateSession(value.issueSession("owner").token);
+    const workspace = value.createWorkspace(principal, "Acme");
+    const store = await value.createStore(principal, workspace.id, { url: "https://example.com" });
+    value.startCatalogDiscovery(principal, store.id);
+    await value.completeCatalogDiscovery(principal, store.id, ["https://example.com/product"]);
+
+    const complete = async (ruleId: string | null, screenshotId: string) => {
+      const { run, items } = value.createStoreAuditRun(principal, store.id);
+      const { run: child, worker } = await value.createAuditRun(principal, store.id, items[0].normalizedUrl);
+      value.linkStoreAuditRunItem(principal, run.id, items[0].id, child.id);
+      value.startAuditRun(worker);
+      const auditResult = ruleId ? failedResult(ruleId, screenshotId) : { ...result(), auditedUrl: child.targetUrl, finalUrl: child.targetUrl, screenshot: { id: screenshotId, url: `/api/artifacts/${screenshotId}` } };
+      value.completeAuditRun(worker, { ...auditResult, auditedUrl: child.targetUrl, finalUrl: child.targetUrl }, { id: screenshotId, contents: Buffer.from(screenshotId) });
+      return value.completeStoreAuditRun(principal, run.id);
+    };
+
+    const first = await complete("PDP-RULE-1", "one");
+    expect(first.issues).toMatchObject([{ ruleId: "PDP-RULE-1", lifecycle: "new" }]);
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    const existing = await complete("PDP-RULE-1", "two");
+    expect(existing.issues).toMatchObject([{ ruleId: "PDP-RULE-1", lifecycle: "unchanged" }]);
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    const resolved = await complete(null, "three");
+    expect(resolved.issues).toMatchObject([{ ruleId: "PDP-RULE-1", lifecycle: "resolved", affectedPdpCount: 0, affectedPdps: [] }]);
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    const regressed = await complete("PDP-RULE-1", "four");
+    expect(regressed.issues).toMatchObject([{ ruleId: "PDP-RULE-1", lifecycle: "regressed" }]);
+    const partial = value.createStoreAuditRun(principal, store.id);
+    value.recordStoreAuditItemFailure(principal, partial.run.id, partial.items[0].id, "timeout");
+    expect(value.completeStoreAuditRun(principal, partial.run.id).issues).toEqual([]);
     value.close();
   });
 });

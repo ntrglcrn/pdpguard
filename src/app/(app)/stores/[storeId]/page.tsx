@@ -3,6 +3,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { RunList } from "@/components/run-list";
+import { StoreAuditForm } from "@/components/store-audit-form";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -19,7 +21,8 @@ export default async function StorePage({
   const { storeId } = await params;
   const data = await getStoreForApp(storeId);
   if (!data) notFound();
-  const { store, runs } = data;
+  const { store, runs, storeAuditRuns, catalog } = data;
+  const activePdpCount = catalog.items.filter((item) => item.active).length;
 
   return (
     <div className="space-y-8">
@@ -53,7 +56,7 @@ export default async function StorePage({
           </a>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button asChild>
+          <Button variant="outline" asChild>
             <Link href={`/stores/${store.id}/catalog`}>
               <Search data-icon="inline-start" aria-hidden="true" /> Catalog
             </Link>
@@ -65,6 +68,81 @@ export default async function StorePage({
           </Button>
         </div>
       </div>
+
+      <section aria-labelledby="quality-title" className="space-y-4">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h2 id="quality-title" className="font-heading text-xl font-semibold">
+              Quality / Audits
+            </h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Store-level issues across a persisted catalog selection.
+            </p>
+          </div>
+          <StoreAuditForm storeId={store.id} activePdpCount={activePdpCount} />
+        </div>
+        {!activePdpCount ? (
+          <Card className="border-dashed">
+            <CardHeader>
+              <CardTitle>No active catalog PDPs</CardTitle>
+              <CardDescription>
+                Discover the catalog before running a Store Audit. No manual
+                URL entry is needed.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button asChild>
+                <Link href={`/stores/${store.id}/catalog`}>Discover catalog</Link>
+              </Button>
+            </CardContent>
+          </Card>
+        ) : storeAuditRuns.length ? (
+          <div className="divide-y divide-border rounded-xl border border-border bg-card">
+            {storeAuditRuns.map((run) => (
+              <article
+                key={run.id}
+                className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <div className="space-y-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge
+                      variant={run.status === "failed" ? "destructive" : "outline"}
+                      className="capitalize"
+                    >
+                      {run.status.replaceAll("_", " ")}
+                    </Badge>
+                    <span className="text-sm">
+                      {run.completedPdpCount} / {run.selectedPdpCount} PDPs completed
+                    </span>
+                    {run.failedPdpCount > 0 && (
+                      <span className="text-sm text-destructive">
+                        {run.failedPdpCount} failed
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {run.summary?.issueCount ?? 0} issues · Automatic bounded v1
+                    · <time dateTime={run.startedAt}>{new Date(run.startedAt).toLocaleString()}</time>
+                  </p>
+                </div>
+                <Button variant="ghost" asChild className="self-start sm:self-auto">
+                  <Link href={`/stores/${store.id}/quality/${run.id}`}>View report</Link>
+                </Button>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <Card className="border-dashed">
+            <CardHeader>
+              <CardTitle>No Store Audits yet</CardTitle>
+              <CardDescription>
+                Run the existing deterministic PDP checks across up to 5 active
+                catalog pages.
+              </CardDescription>
+            </CardHeader>
+          </Card>
+        )}
+      </section>
 
       <section aria-labelledby="runs-title" className="space-y-4">
         <div>
