@@ -1,4 +1,4 @@
-import { ExternalLink, Search, Zap } from "lucide-react";
+import { Activity, ExternalLink, Search, Zap } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
@@ -59,6 +59,11 @@ export default async function StorePage({
           <Button variant="outline" asChild>
             <Link href={`/stores/${store.id}/catalog`}>
               <Search data-icon="inline-start" aria-hidden="true" /> Catalog
+            </Link>
+          </Button>
+          <Button variant="outline" asChild>
+            <Link href={`/stores/${store.id}/monitoring`}>
+              <Activity data-icon="inline-start" aria-hidden="true" /> Monitoring
             </Link>
           </Button>
           <Button variant="outline" asChild>

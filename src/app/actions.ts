@@ -8,6 +8,7 @@ import {
   createStoreForApp,
   discoverCatalogForApp,
   executeAuditForApp,
+  executeMonitoringCheckForApp,
   executeStoreAuditForApp,
 } from "@/lib/app-service";
 import { CatalogDiscoveryBusyError } from "@/lib/catalog-discovery";
@@ -52,6 +53,24 @@ export async function createStoreAuditAction(
   }
   revalidatePath(`/stores/${storeId}`);
   redirect(`/stores/${storeId}/quality/${run.id}`);
+}
+
+export async function createMonitoringCheckAction(
+  storeId: string,
+  referenceRunId: string,
+  _previousState: CatalogActionState,
+): Promise<CatalogActionState> {
+  void _previousState;
+  try {
+    const run = await executeMonitoringCheckForApp(storeId, referenceRunId);
+    revalidatePath(`/stores/${storeId}/monitoring`);
+    redirect(`/stores/${storeId}/monitoring?run=${encodeURIComponent(run.id)}`);
+  } catch (error) {
+    unstable_rethrow(error);
+    if (error instanceof AuditBusyError || error instanceof EmptyStoreCatalogError)
+      return { error: error.message };
+    return { error: "The check could not be completed. Try again." };
+  }
 }
 
 export async function createStoreAction(

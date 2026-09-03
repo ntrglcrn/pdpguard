@@ -14,6 +14,9 @@ import type {
   CatalogItem,
   AuditScopeInput,
   AuditScopeSnapshot,
+  MonitoringIssue,
+  MonitoringReport,
+  MonitoringTargetSummary,
   Store,
   StoreAuditRun,
   StoreAuditRunItem,
@@ -762,6 +765,149 @@ export class WorkspaceService {
       .map(storeAuditRunFromRow);
   }
 
+  listMonitoringTargets(
+    principal: AuthenticatedUser,
+    storeId: string,
+  ): MonitoringTargetSummary[] {
+    this.requireStore(principal, storeId);
+    const runs = this.database
+      .prepare(
+        `SELECT * FROM (
+           SELECT *, ROW_NUMBER() OVER (
+             PARTITION BY json_extract(scope_snapshot_json, '$.kind'),
+             COALESCE(json_extract(scope_snapshot_json, '$.categoryId'), ''),
+             json_extract(scope_snapshot_json, '$.selectionSemantics'),
+             json_extract(scope_snapshot_json, '$.executionLimit')
+             ORDER BY started_at DESC, id DESC
+           ) AS position FROM store_audit_runs WHERE store_id = ?
+         ) WHERE position = 1 ORDER BY started_at DESC, id DESC LIMIT 30`,
+      )
+      .all(storeId)
+      .map(storeAuditRunFromRow);
+    const targets = new Map<string, MonitoringTargetSummary>();
+    for (const run of runs) {
+      const key = this.monitoringScopeKey(run);
+      const target = targets.get(key);
+      if (!target) {
+        const confirmed = this.database.prepare(
+          `SELECT * FROM store_audit_runs WHERE store_id = ? AND status = 'completed'
+           AND json_extract(scope_snapshot_json, '$.kind') = ?
+           AND COALESCE(json_extract(scope_snapshot_json, '$.categoryId'), '') = ?
+           AND json_extract(scope_snapshot_json, '$.selectionSemantics') = ?
+           AND json_extract(scope_snapshot_json, '$.executionLimit') = ?
+           ORDER BY started_at DESC, id DESC LIMIT 1`,
+        ).get(storeId, run.scope.kind, run.scope.categoryId ?? "", run.scope.selectionSemantics, run.scope.executionLimit);
+        targets.set(key, {
+          referenceRunId: run.id,
+          scope: run.scope,
+          latestAttempt: run,
+          lastConfirmed: confirmed && storeAuditRunFromRow(confirmed).scope.catalogComplete ? storeAuditRunFromRow(confirmed) : null,
+        });
+      } else if (!target.lastConfirmed && this.isConfirmedRun(run)) {
+        target.lastConfirmed = run;
+      }
+    }
+    return [...targets.values()];
+  }
+
+  getMonitoringReport(
+    principal: AuthenticatedUser,
+    storeId: string,
+    referenceRunId: string,
+  ): MonitoringReport {
+    this.requireStore(principal, storeId);
+    const reference = this.requireStoreAuditRun(principal, referenceRunId);
+    if (reference.storeId !== storeId) throw new AuthorizationError();
+    const scopeWhere = `store_id = ? AND json_extract(scope_snapshot_json, '$.kind') = ?
+      AND COALESCE(json_extract(scope_snapshot_json, '$.categoryId'), '') = ?
+      AND json_extract(scope_snapshot_json, '$.selectionSemantics') = ?
+      AND json_extract(scope_snapshot_json, '$.executionLimit') = ?`;
+    const scopeValues = [storeId, reference.scope.kind, reference.scope.categoryId ?? "", reference.scope.selectionSemantics, reference.scope.executionLimit] as const;
+    const history = this.database
+      .prepare(
+        `SELECT * FROM store_audit_runs WHERE ${scopeWhere}
+         ORDER BY started_at DESC, id DESC LIMIT 50`,
+      )
+      .all(...scopeValues)
+      .map(storeAuditRunFromRow)
+      .slice(0, 20);
+    const latestAttempt = history[0];
+    if (!latestAttempt) throw new AuthorizationError();
+    const lastConfirmed = history.find((run) => this.isConfirmedRun(run)) ?? null;
+    const comparableHistory = lastConfirmed
+      ? this.database
+          .prepare(
+            `SELECT * FROM store_audit_runs WHERE store_id = ?
+             AND status = 'completed' AND selection_signature = ? AND ruleset_version = ?
+             AND started_at <= ? ORDER BY started_at DESC, id DESC LIMIT 20`,
+          )
+          .all(
+            storeId,
+            lastConfirmed.selectionSignature,
+            lastConfirmed.rulesetVersion,
+            lastConfirmed.startedAt,
+          )
+          .map(storeAuditRunFromRow).reverse()
+      : [];
+    const baselineRow = this.database.prepare(
+      `SELECT * FROM store_audit_runs WHERE ${scopeWhere} AND status = 'completed'
+       ORDER BY started_at ASC, id ASC LIMIT 1`,
+    ).get(...scopeValues);
+    const baseline = baselineRow ? storeAuditRunFromRow(baselineRow) : null;
+    const comparisonPredecessor =
+      comparableHistory.length > 1
+        ? comparableHistory[comparableHistory.length - 2]
+        : null;
+    const currentIssues = lastConfirmed
+      ? this.monitoringIssues(lastConfirmed, comparableHistory, comparisonPredecessor)
+      : [];
+    const comparedIssues =
+      lastConfirmed && comparisonPredecessor
+        ? this.storeIssues(lastConfirmed)
+        : [];
+    const changes = comparisonPredecessor
+      ? {
+          new: comparedIssues.filter((issue) => issue.lifecycle === "new").length,
+          unchanged: comparedIssues.filter((issue) => issue.lifecycle === "unchanged").length,
+          resolved: comparedIssues.filter((issue) => issue.lifecycle === "resolved").length,
+          regressed: comparedIssues.filter((issue) => issue.lifecycle === "regressed").length,
+        }
+      : null;
+    const categoryActive =
+      latestAttempt.scope.kind !== "category" ||
+      Boolean(
+        this.database
+          .prepare(
+            "SELECT 1 FROM catalog_categories WHERE id = ? AND store_id = ? AND active = 1",
+          )
+          .get(latestAttempt.scope.categoryId, storeId),
+      );
+    return {
+      scope: latestAttempt.scope,
+      canRunCheck: categoryActive,
+      latestAttempt,
+      lastConfirmed,
+      baseline,
+      comparisonPredecessor,
+      comparisonUnavailable: Boolean(lastConfirmed && !comparisonPredecessor && baseline?.id !== lastConfirmed.id),
+      changes,
+      currentIssues,
+      history,
+    };
+  }
+
+  monitoringScopeInput(
+    principal: AuthenticatedUser,
+    storeId: string,
+    referenceRunId: string,
+  ): AuditScopeInput {
+    const report = this.getMonitoringReport(principal, storeId, referenceRunId);
+    if (!report.canRunCheck) throw new EmptyStoreCatalogError();
+    return report.scope.kind === "category"
+      ? { kind: "category", categoryId: report.scope.categoryId! }
+      : { kind: report.scope.kind };
+  }
+
   getStoreAuditRun(
     principal: AuthenticatedUser,
     storeAuditRunId: string,
@@ -1008,6 +1154,73 @@ export class WorkspaceService {
         current.set(ruleId, issue);
       }
     return [...current.values()].sort((a, b) => a.ruleId.localeCompare(b.ruleId));
+  }
+
+  private isConfirmedRun(run: StoreAuditRun) {
+    return run.status === "completed" && run.scope.catalogComplete;
+  }
+
+  private monitoringScopeKey(run: StoreAuditRun) {
+    return JSON.stringify({
+      kind: run.scope.kind,
+      categoryId: run.scope.categoryId,
+      selectionSemantics: run.scope.selectionSemantics,
+      executionLimit: run.scope.executionLimit,
+    });
+  }
+
+  private monitoringIssues(
+    current: StoreAuditRun,
+    comparableHistory: StoreAuditRun[],
+    comparisonPredecessor: StoreAuditRun | null,
+  ): MonitoringIssue[] {
+    const issues = this.storeIssues(current)
+      .filter((issue) => issue.affectedPdpCount > 0)
+      .map((issue) => ({ ...issue, lifecycle: comparisonPredecessor ? issue.lifecycle : null }));
+    const ruleSets = new Map(
+      comparableHistory.map((run) => [run.id, this.issueRuleIds(run.id)]),
+    );
+    return issues.map((issue) => {
+      let previouslyAffected = false;
+      let wasAffected = false;
+      let firstSeenAt: string | null = null;
+      let lastSeenAt: string | null = null;
+      const history = comparableHistory.flatMap((run) => {
+        const affected = ruleSets.get(run.id)?.has(issue.ruleId) ?? false;
+        if (!affected && !wasAffected) return [];
+        if (!affected && !previouslyAffected) return [];
+        if (affected) {
+          firstSeenAt ??= run.completedAt;
+          lastSeenAt = run.completedAt;
+        }
+        const lifecycle: MonitoringIssue["history"][number]["lifecycle"] = affected
+          ? previouslyAffected
+            ? "unchanged"
+            : wasAffected
+              ? "regressed"
+              : "new"
+          : "resolved";
+        wasAffected ||= affected;
+        previouslyAffected = affected;
+        return [{ runId: run.id, completedAt: run.completedAt!, lifecycle }];
+      });
+      return { ...issue, firstSeenAt, lastSeenAt, history };
+    });
+  }
+
+  private issueRuleIds(storeAuditRunId: string) {
+    return new Set(
+      this.database
+        .prepare(
+          `SELECT DISTINCT f.rule_id FROM store_audit_run_items i
+           JOIN audit_runs r ON r.id = i.audit_run_id AND r.status = 'completed'
+           JOIN findings f ON f.audit_run_id = r.id
+           WHERE i.store_audit_run_id = ?
+             AND json_extract(f.payload_json, '$.status') = 'failed'`,
+        )
+        .all(storeAuditRunId)
+        .map((row) => String(row.rule_id)),
+    );
   }
 
   private requireWorker(

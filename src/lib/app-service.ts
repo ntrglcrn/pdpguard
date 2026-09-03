@@ -82,6 +82,22 @@ export async function getStoreCatalogForApp(storeId: string) {
   }
 }
 
+export async function getMonitoringForApp(storeId: string, referenceRunId?: string) {
+  const service = getWorkspaceService();
+  const principal = await getPrincipal(`/stores/${storeId}/monitoring`);
+  try {
+    const store = service.getStore(principal, storeId);
+    const targets = service.listMonitoringTargets(principal, store.id);
+    const target = referenceRunId
+      ? targets.find((item) => item.referenceRunId === referenceRunId)
+      : targets[0];
+    return { store, targets, report: target ? service.getMonitoringReport(principal, store.id, target.referenceRunId) : null };
+  } catch (error) {
+    if (error instanceof AuthorizationError) return null;
+    throw error;
+  }
+}
+
 export async function getRunForApp(runId: string) {
   const service = getWorkspaceService();
   const principal = await getPrincipal(`/runs/${runId}`);
@@ -131,6 +147,17 @@ export async function executeStoreAuditForApp(storeId: string, scope: AuditScope
     await getPrincipal(`/stores/${storeId}`),
     storeId,
     scope,
+  );
+}
+
+export async function executeMonitoringCheckForApp(storeId: string, referenceRunId: string) {
+  const service = getWorkspaceService();
+  const principal = await getPrincipal(`/stores/${storeId}/monitoring?run=${encodeURIComponent(referenceRunId)}`);
+  return executeCatalogStoreAudit(
+    service,
+    principal,
+    storeId,
+    service.monitoringScopeInput(principal, storeId, referenceRunId),
   );
 }
 

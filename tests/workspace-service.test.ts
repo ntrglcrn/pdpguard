@@ -354,4 +354,35 @@ describe("WorkspaceService", () => {
     expect(value.completeStoreAuditRun(principal, partial.run.id).issues).toEqual([]);
     value.close();
   });
+
+  it("derives monitoring from bounded runs without letting a partial attempt erase confirmed state", async () => {
+    const { value } = service();
+    const principal = value.authenticateSession(value.issueSession("owner").token);
+    const workspace = value.createWorkspace(principal, "Acme");
+    const store = await value.createStore(principal, workspace.id, { url: "https://example.com" });
+    value.startCatalogDiscovery(principal, store.id);
+    await value.completeCatalogDiscovery(principal, store.id, ["https://example.com/product"]);
+    const complete = async (ruleId: string | null, screenshotId: string) => {
+      const { run, items } = value.createStoreAuditRun(principal, store.id);
+      const { run: child, worker } = await value.createAuditRun(principal, store.id, items[0].normalizedUrl);
+      value.linkStoreAuditRunItem(principal, run.id, items[0].id, child.id);
+      value.startAuditRun(worker);
+      const auditResult = ruleId ? failedResult(ruleId, screenshotId) : { ...result(), auditedUrl: child.targetUrl, finalUrl: child.targetUrl, screenshot: { id: screenshotId, url: `/api/artifacts/${screenshotId}` } };
+      value.completeAuditRun(worker, { ...auditResult, auditedUrl: child.targetUrl, finalUrl: child.targetUrl }, { id: screenshotId, contents: Buffer.from(screenshotId) });
+      return value.completeStoreAuditRun(principal, run.id);
+    };
+    const baseline = await complete("PDP-RULE-1", "baseline");
+    let report = value.getMonitoringReport(principal, store.id, baseline.id);
+    expect(report).toMatchObject({ baseline: { id: baseline.id }, comparisonPredecessor: null, changes: null });
+    expect(report.currentIssues).toMatchObject([{ ruleId: "PDP-RULE-1", lifecycle: null }]);
+    const partial = value.createStoreAuditRun(principal, store.id);
+    value.recordStoreAuditItemFailure(principal, partial.run.id, partial.items[0].id, "timeout");
+    value.completeStoreAuditRun(principal, partial.run.id);
+    report = value.getMonitoringReport(principal, store.id, baseline.id);
+    expect(report.latestAttempt.status).toBe("failed");
+    expect(report.lastConfirmed?.id).toBe(baseline.id);
+    expect(report.currentIssues).toHaveLength(1);
+    expect(report.history).toHaveLength(2);
+    value.close();
+  });
 });

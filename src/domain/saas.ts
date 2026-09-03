@@ -195,3 +195,35 @@ export interface StoreAuditRunReport extends StoreAuditRun {
   items: StoreAuditRunItem[];
   issues: StoreIssue[];
 }
+
+export interface MonitoringTargetSummary {
+  referenceRunId: string;
+  scope: AuditScopeSnapshot;
+  latestAttempt: StoreAuditRun;
+  lastConfirmed: StoreAuditRun | null;
+}
+
+export interface MonitoringIssueHistoryEntry {
+  runId: string;
+  completedAt: string;
+  lifecycle: IssueLifecycle;
+}
+
+export interface MonitoringIssue extends StoreIssue {
+  firstSeenAt: string | null;
+  lastSeenAt: string | null;
+  history: MonitoringIssueHistoryEntry[];
+}
+
+export interface MonitoringReport {
+  scope: AuditScopeSnapshot;
+  canRunCheck: boolean;
+  latestAttempt: StoreAuditRun;
+  lastConfirmed: StoreAuditRun | null;
+  baseline: StoreAuditRun | null;
+  comparisonPredecessor: StoreAuditRun | null;
+  comparisonUnavailable: boolean;
+  changes: Record<IssueLifecycle, number> | null;
+  currentIssues: MonitoringIssue[];
+  history: StoreAuditRun[];
+}

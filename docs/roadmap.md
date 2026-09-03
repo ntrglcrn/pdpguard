@@ -31,8 +31,10 @@ store-quality workflow:
   active matches. It snapshots immutable criteria and membership, reuses the
   serial browser audit boundary, and aggregates failed findings by stable rule
   ID. Only identical complete snapshots receive lifecycle states.
-- **Monitoring:** not implemented. Manual catalog refresh exists, but there is
-  no comparison, schedule, notification, or integration.
+- **Monitoring:** implemented locally for manual checks. Monitoring derives
+  bounded scope history and confirmed current state from immutable Store Audits;
+  only exact complete snapshots are compared. Scheduling, notifications, and
+  integrations remain deferred.
 
 The scenario engine is implemented and browser-fixture tested, but is not wired
 to the SaaS runner, persistence, or UI. It is an engine primitive, not a
@@ -178,8 +180,8 @@ Audit.
 
 ## Current focus
 
-**Manual Monitoring v1:** compare compatible, complete scoped Store Audits
-without weakening catalog, URL-safety, or lifecycle invariants.
+**Hosted Foundation for customer access:** establish the production controls
+required before scheduled work or customer access.
 
 ## Release gates
 
