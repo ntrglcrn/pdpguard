@@ -61,6 +61,23 @@ function result(): AuditResult {
   };
 }
 
+function failedResult(ruleId: string, screenshotId: string): AuditResult {
+  return {
+    ...result(),
+    screenshot: { id: screenshotId, url: `/api/artifacts/${screenshotId}` },
+    summary: { status: "warning", counts: { critical: 0, warning: 1, passed: 0 } },
+    findings: [
+      {
+        ...result().findings[0],
+        id: ruleId,
+        ruleId,
+        status: "failed",
+        severity: "warning",
+      },
+    ],
+  };
+}
+
 describe("WorkspaceService", () => {
   it("keeps production sessions Secure and supports an explicit local bootstrap cookie", () => {
     const { value } = service();
@@ -281,6 +298,41 @@ describe("WorkspaceService", () => {
     expect(value.listAuditRuns(principal, store.id)).toEqual([]);
     expect(report.items[0].auditRunId).toBe(child.id);
     expect(report.items[1].failureCategory).toBe("timeout");
+    value.close();
+  });
+
+  it("tracks only comparable complete Store Audit issue lifecycle", async () => {
+    const { value } = service();
+    const principal = value.authenticateSession(value.issueSession("owner").token);
+    const workspace = value.createWorkspace(principal, "Acme");
+    const store = await value.createStore(principal, workspace.id, { url: "https://example.com" });
+    value.startCatalogDiscovery(principal, store.id);
+    await value.completeCatalogDiscovery(principal, store.id, ["https://example.com/product"]);
+
+    const complete = async (ruleId: string | null, screenshotId: string) => {
+      const { run, items } = value.createStoreAuditRun(principal, store.id);
+      const { run: child, worker } = await value.createAuditRun(principal, store.id, items[0].normalizedUrl);
+      value.linkStoreAuditRunItem(principal, run.id, items[0].id, child.id);
+      value.startAuditRun(worker);
+      const auditResult = ruleId ? failedResult(ruleId, screenshotId) : { ...result(), auditedUrl: child.targetUrl, finalUrl: child.targetUrl, screenshot: { id: screenshotId, url: `/api/artifacts/${screenshotId}` } };
+      value.completeAuditRun(worker, { ...auditResult, auditedUrl: child.targetUrl, finalUrl: child.targetUrl }, { id: screenshotId, contents: Buffer.from(screenshotId) });
+      return value.completeStoreAuditRun(principal, run.id);
+    };
+
+    const first = await complete("PDP-RULE-1", "one");
+    expect(first.issues).toMatchObject([{ ruleId: "PDP-RULE-1", lifecycle: "new" }]);
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    const existing = await complete("PDP-RULE-1", "two");
+    expect(existing.issues).toMatchObject([{ ruleId: "PDP-RULE-1", lifecycle: "unchanged" }]);
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    const resolved = await complete(null, "three");
+    expect(resolved.issues).toMatchObject([{ ruleId: "PDP-RULE-1", lifecycle: "resolved", affectedPdpCount: 0, affectedPdps: [] }]);
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    const regressed = await complete("PDP-RULE-1", "four");
+    expect(regressed.issues).toMatchObject([{ ruleId: "PDP-RULE-1", lifecycle: "regressed" }]);
+    const partial = value.createStoreAuditRun(principal, store.id);
+    value.recordStoreAuditItemFailure(principal, partial.run.id, partial.items[0].id, "timeout");
+    expect(value.completeStoreAuditRun(principal, partial.run.id).issues).toEqual([]);
     value.close();
   });
 });
