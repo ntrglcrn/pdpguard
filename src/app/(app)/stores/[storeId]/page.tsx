@@ -72,7 +72,10 @@ export default async function StorePage({
       <section aria-labelledby="quality-title" className="space-y-4">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <h2 id="quality-title" className="font-heading text-xl font-semibold">
+            <h2
+              id="quality-title"
+              className="font-heading text-xl font-semibold"
+            >
               Quality / Audits
             </h2>
             <p className="mt-1 text-sm text-muted-foreground">
@@ -86,13 +89,15 @@ export default async function StorePage({
             <CardHeader>
               <CardTitle>No active catalog PDPs</CardTitle>
               <CardDescription>
-                Discover the catalog before running a Store Audit. No manual
-                URL entry is needed.
+                Discover the catalog before running a Store Audit. No manual URL
+                entry is needed.
               </CardDescription>
             </CardHeader>
             <CardContent>
               <Button asChild>
-                <Link href={`/stores/${store.id}/catalog`}>Discover catalog</Link>
+                <Link href={`/stores/${store.id}/catalog`}>
+                  Discover catalog
+                </Link>
               </Button>
             </CardContent>
           </Card>
@@ -106,13 +111,16 @@ export default async function StorePage({
                 <div className="space-y-2">
                   <div className="flex flex-wrap items-center gap-2">
                     <Badge
-                      variant={run.status === "failed" ? "destructive" : "outline"}
+                      variant={
+                        run.status === "failed" ? "destructive" : "outline"
+                      }
                       className="capitalize"
                     >
                       {run.status.replaceAll("_", " ")}
                     </Badge>
                     <span className="text-sm">
-                      {run.completedPdpCount} / {run.selectedPdpCount} PDPs completed
+                      {run.completedPdpCount} / {run.selectedPdpCount} PDPs
+                      completed
                     </span>
                     {run.failedPdpCount > 0 && (
                       <span className="text-sm text-destructive">
@@ -121,12 +129,25 @@ export default async function StorePage({
                     )}
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    {run.summary?.issueCount ?? 0} issues · Automatic bounded v1
-                    · <time dateTime={run.startedAt}>{new Date(run.startedAt).toLocaleString()}</time>
+                    {run.summary?.issueCount ?? 0} issues · {scopeLabel(run)} ·{" "}
+                    {run.scope.matchingPdpCount} matching ·{" "}
+                    {run.scope.selectedCatalogItemIds.length ||
+                      run.selectedPdpCount}{" "}
+                    selected
+                    {" · "}
+                    <time dateTime={run.startedAt}>
+                      {new Date(run.startedAt).toLocaleString()}
+                    </time>
                   </p>
                 </div>
-                <Button variant="ghost" asChild className="self-start sm:self-auto">
-                  <Link href={`/stores/${store.id}/quality/${run.id}`}>View report</Link>
+                <Button
+                  variant="ghost"
+                  asChild
+                  className="self-start sm:self-auto"
+                >
+                  <Link href={`/stores/${store.id}/quality/${run.id}`}>
+                    View report
+                  </Link>
                 </Button>
               </article>
             ))}
@@ -175,4 +196,17 @@ export default async function StorePage({
       </section>
     </div>
   );
+}
+
+function scopeLabel(run: {
+  scope: {
+    kind: "all" | "category" | "uncategorized";
+    categoryName: string | null;
+  };
+}) {
+  return run.scope.kind === "category"
+    ? (run.scope.categoryName ?? "Category")
+    : run.scope.kind === "uncategorized"
+      ? "Uncategorized"
+      : "All products";
 }

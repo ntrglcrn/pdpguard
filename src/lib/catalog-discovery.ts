@@ -16,9 +16,18 @@ const MAX_REDIRECTS = 5;
 const DISCOVERY_TIMEOUT_MS = 30_000;
 const MAX_CANDIDATE_LINKS = 200;
 const MAX_INSPECTED_LINKS = 1_000;
+const MAX_CATEGORY_CANDIDATES = 30;
+const MAX_CATEGORY_PAGES = 10;
+
+export interface CatalogDiscoveryResult {
+  productUrls: string[];
+  categories: Array<{ url: string; name: string; source?: "root_page_link" | "category_page_link" }>;
+  mappings: Array<{ productUrl: string; categoryUrl: string }>;
+  truncated: boolean;
+}
 
 export interface CatalogDiscoveryRunner {
-  discover(storeUrl: string): Promise<string[]>;
+  discover(storeUrl: string): Promise<string[] | CatalogDiscoveryResult>;
 }
 
 export class CatalogDiscoveryBusyError extends Error {
@@ -95,7 +104,7 @@ export class PlaywrightCatalogDiscoveryRunner implements CatalogDiscoveryRunner 
     private readonly timeoutMs = DISCOVERY_TIMEOUT_MS,
   ) {}
 
-  async discover(storeUrl: string) {
+  async discover(storeUrl: string): Promise<CatalogDiscoveryResult> {
     const origin = new URL(storeUrl).origin;
     let browser: Browser | null = null;
     let timedOut = false;
@@ -138,9 +147,6 @@ export class PlaywrightCatalogDiscoveryRunner implements CatalogDiscoveryRunner 
 
         try {
           const requestUrl = new URL(request.url());
-          const isMainNavigation =
-            request.isNavigationRequest() &&
-            request.frame() === page.mainFrame();
           if (request.isNavigationRequest() && requestUrl.origin !== origin)
             throw new UnsafeUrlError(
               "Catalog discovery cannot navigate outside the store origin.",
@@ -151,16 +157,15 @@ export class PlaywrightCatalogDiscoveryRunner implements CatalogDiscoveryRunner 
             );
 
           const cacheKey = requestUrl.origin;
-          if (isMainNavigation || !safeHostCache.has(cacheKey)) {
+          if (request.isNavigationRequest()) {
             await validatePublicUrl(request.url(), this.resolver);
-            if (!isMainNavigation) safeHostCache.add(cacheKey);
+          } else if (!safeHostCache.has(cacheKey)) {
+            await validatePublicUrl(request.url(), this.resolver);
+            safeHostCache.add(cacheKey);
           }
           await route.continue();
         } catch (error) {
-          if (
-            request.isNavigationRequest() &&
-            request.frame() === page.mainFrame()
-          )
+          if (request.isNavigationRequest())
             fatalSafetyError =
               error instanceof UnsafeUrlError
                 ? error
@@ -189,16 +194,50 @@ export class PlaywrightCatalogDiscoveryRunner implements CatalogDiscoveryRunner 
         .waitFor({ state: "attached" })
         .catch(() => undefined);
 
-      const links = await page
+      const anchors = await page
         .locator("a[href]")
         .evaluateAll(
           (anchors, limit) =>
             anchors
               .slice(0, limit)
-              .map((anchor) => (anchor as HTMLAnchorElement).href),
+              .map((anchor) => ({
+                href: (anchor as HTMLAnchorElement).href,
+                text: anchor.textContent?.trim() ?? "",
+              })),
           MAX_INSPECTED_LINKS,
         );
-      return catalogProductUrls(links, origin);
+      const links = anchors.map((anchor) => anchor.href);
+      const productUrls = catalogProductUrls(links, origin);
+      const categoryCandidates = categoryLinks(anchors, origin);
+      const categories = categoryCandidates.slice(0, MAX_CATEGORY_CANDIDATES);
+      const mappings: CatalogDiscoveryResult["mappings"] = [];
+      let truncated = categoryCandidates.length > MAX_CATEGORY_PAGES;
+      for (const category of categories.slice(0, MAX_CATEGORY_PAGES)) {
+        const safeCategory = await validatePublicUrl(category.url, this.resolver);
+        if (safeCategory.origin !== origin) continue;
+        const categoryPage = await context.newPage();
+        try {
+          const response = await categoryPage.goto(safeCategory.href, { waitUntil: "domcontentloaded", timeout: 5_000 });
+          if (!response || response.status() >= 400) {
+            truncated = true;
+            continue;
+          }
+          const categoryProductUrls = catalogProductUrls(
+            await categoryPage.locator("a[href]").evaluateAll((anchors, limit) => anchors.slice(0, limit).map((anchor) => (anchor as HTMLAnchorElement).href), MAX_INSPECTED_LINKS),
+            origin,
+          );
+          for (const productUrl of categoryProductUrls) mappings.push({ productUrl, categoryUrl: safeCategory.href });
+          productUrls.push(...categoryProductUrls);
+        } catch {
+          if (fatalSafetyError) throw fatalSafetyError;
+          if (timedOut) throw new CatalogDiscoveryTimeoutError();
+          truncated = true;
+        } finally {
+          await categoryPage.close();
+        }
+      }
+      const boundedProducts = [...new Set(productUrls)].slice(0, MAX_CANDIDATE_LINKS);
+      return { productUrls: boundedProducts, categories, mappings, truncated: truncated || boundedProducts.length === MAX_CANDIDATE_LINKS };
     } catch (error) {
       if (timedOut && !(error instanceof UnsafeUrlError))
         throw new CatalogDiscoveryTimeoutError();
@@ -208,6 +247,27 @@ export class PlaywrightCatalogDiscoveryRunner implements CatalogDiscoveryRunner 
       await browser?.close().catch(() => undefined);
     }
   }
+}
+
+export function categoryLinks(
+  links: Array<string | { href: string; text: string }>,
+  origin: string,
+) {
+  const categories = new Map<string, { url: string; name: string; source: "root_page_link" }>();
+  for (const link of links) {
+    try {
+      const url = new URL(typeof link === "string" ? link : link.href);
+      if (url.origin !== origin || !/^\/(?:collections?|categories|catalog)\/[^/]+\/?$/i.test(url.pathname)) continue;
+      const normalized = url.href;
+      if (!categories.has(normalized))
+        categories.set(normalized, {
+          url: normalized,
+          name: typeof link === "string" ? "" : link.text,
+          source: "root_page_link",
+        });
+    } catch { /* persistence rejects malformed URLs */ }
+  }
+  return [...categories.values()];
 }
 
 function redirectCount(request: Request) {

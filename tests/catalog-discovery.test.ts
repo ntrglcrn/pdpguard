@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   catalogProductUrls,
+  categoryLinks,
   CatalogDiscoveryTimeoutError,
   executeCatalogDiscovery,
   PlaywrightCatalogDiscoveryRunner,
@@ -66,6 +67,43 @@ describe("catalog discovery", () => {
     expect(
       catalogProductUrls([...links, links[0]], "https://shop.example"),
     ).toHaveLength(200);
+  });
+
+  it("uses visible category link text as category evidence", () => {
+    expect(
+      categoryLinks(
+        [
+          { href: "https://shop.example/collections/rings", text: "Fine rings" },
+          { href: "https://shop.example/collections/rings", text: "Rings" },
+          { href: "https://other.example/collections/rings", text: "Other" },
+        ],
+        "https://shop.example",
+      ),
+    ).toEqual([
+      {
+        url: "https://shop.example/collections/rings",
+        name: "Fine rings",
+        source: "root_page_link",
+      },
+    ]);
+  });
+
+  it("persists bounded category mappings without classifying uncategorized PDPs", async () => {
+    const { service } = createService();
+    const principal = service.authenticateSession(service.issueSession("owner").token);
+    const workspace = service.createWorkspace(principal, "Acme");
+    const store = await service.createStore(principal, workspace.id, { url: "https://example.com" });
+    service.startCatalogDiscovery(principal, store.id);
+    const catalog = await service.completeCatalogDiscovery(principal, store.id, {
+      productUrls: ["https://example.com/products/a", "https://example.com/products/b"],
+      categories: [{ url: "https://example.com/collections/rings", name: "Rings" }],
+      mappings: [{ productUrl: "https://example.com/products/a", categoryUrl: "https://example.com/collections/rings" }],
+      truncated: false,
+    });
+    expect(catalog.categories).toMatchObject([{ name: "Rings", active: true }]);
+    expect(catalog.items.find((item) => item.normalizedUrl.endsWith("/a"))?.categoryIds).toEqual([catalog.categories[0].id]);
+    expect(catalog.items.find((item) => item.normalizedUrl.endsWith("/b"))?.categoryIds).toEqual([]);
+    service.close();
   });
 
   it("persists exact normalized URLs, deduplicates, and marks missing pages inactive", async () => {

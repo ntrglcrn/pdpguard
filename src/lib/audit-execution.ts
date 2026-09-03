@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import type { AuditRunner } from "@/domain/audit";
-import type { AuthenticatedUser } from "@/domain/saas";
+import type { AuthenticatedUser, AuditScopeInput } from "@/domain/saas";
 import { AuditTimeoutError, PlaywrightAuditRunner } from "@/lib/audit/engine";
 import type { ScreenshotStorage } from "@/lib/screenshot-storage";
 import { UnsafeUrlError } from "@/lib/url-safety";
@@ -47,12 +47,14 @@ export async function executeCatalogStoreAudit(
   service: WorkspaceService,
   principal: AuthenticatedUser,
   storeId: string,
+  scope: AuditScopeInput = { kind: "all" },
   createRunner: RunnerFactory = (storage) => new PlaywrightAuditRunner(storage),
 ) {
   return withAuditSlot(async () => {
     const { run: parent, items } = service.createStoreAuditRun(
       principal,
       storeId,
+      scope,
     );
     try {
       for (const item of items) {

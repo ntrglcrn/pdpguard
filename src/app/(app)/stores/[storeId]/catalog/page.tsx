@@ -1,8 +1,10 @@
 import { ExternalLink } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import type { ReactNode } from "react";
 
 import { CatalogDiscoveryForm } from "@/components/catalog-discovery-form";
+import { StoreAuditForm } from "@/components/store-audit-form";
 import { Badge } from "@/components/ui/badge";
 import {
   Card,
@@ -30,14 +32,41 @@ const statusLabel: Record<CatalogDiscoveryStatus, string> = {
 
 export default async function StoreCatalogPage({
   params,
+  searchParams,
 }: PageProps<"/stores/[storeId]/catalog">) {
   const { storeId } = await params;
+  const filters = await searchParams;
   const data = await getStoreCatalogForApp(storeId);
   if (!data) notFound();
   const { store, catalog } = data;
   const activeItems = catalog.items.filter((item) => item.active);
   const inactiveItems = catalog.items.filter((item) => !item.active);
   const hasRun = catalog.discovery.status !== "not_started";
+  const activeCategories = catalog.categories.filter(
+    (category) => category.active,
+  );
+  const activeCategoryIds = new Set(
+    activeCategories.map((category) => category.id),
+  );
+  const category = activeCategories.find(
+    (candidate) => candidate.id === filters.category,
+  );
+  const uncategorized = !category && filters.scope === "uncategorized";
+  const matchingItems = activeItems.filter((item) =>
+    category
+      ? item.categoryIds.includes(category.id)
+      : uncategorized
+        ? !item.categoryIds.some((categoryId) =>
+            activeCategoryIds.has(categoryId),
+          )
+        : true,
+  );
+  const scope = category ? "category" : uncategorized ? "uncategorized" : "all";
+  const scopeLabel =
+    category?.name ?? (uncategorized ? "Uncategorized" : "All products");
+  const categoriesById = new Map(
+    catalog.categories.map((item) => [item.id, item]),
+  );
 
   return (
     <div className="space-y-8">
@@ -129,73 +158,163 @@ export default async function StoreCatalogPage({
         </Card>
       )}
 
-      <section aria-labelledby="catalog-items-title" className="space-y-4">
-        <div>
-          <h2
-            id="catalog-items-title"
-            className="font-heading text-xl font-semibold"
-          >
-            Product pages
-          </h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Exact normalized URLs are kept as separate catalog entries.
-          </p>
-        </div>
-
-        {catalog.items.length ? (
-          <div className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card">
-            {catalog.items.map((item) => (
-              <article key={item.id} className="space-y-2 p-4">
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge variant={item.active ? "passed" : "secondary"}>
-                    {item.active ? "Active" : "Not seen"}
-                  </Badge>
-                  <span className="text-xs text-muted-foreground">
-                    Root page link
-                  </span>
-                </div>
-                <a
-                  href={item.normalizedUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex max-w-full items-start gap-1 break-words font-mono text-xs underline-offset-4 hover:underline [overflow-wrap:anywhere] focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
-                >
-                  {item.normalizedUrl}
-                  <ExternalLink
-                    className="mt-0.5 size-3 shrink-0"
-                    aria-hidden="true"
-                  />
-                </a>
-                <p className="text-xs text-muted-foreground">
-                  First seen{" "}
-                  <time dateTime={item.firstSeenAt}>
-                    {new Date(item.firstSeenAt).toLocaleString()}
-                  </time>
-                  {" · "}Last seen{" "}
-                  <time dateTime={item.lastSeenAt}>
-                    {new Date(item.lastSeenAt).toLocaleString()}
-                  </time>
-                </p>
-              </article>
+      <section aria-labelledby="catalog-items-title" className="space-y-5">
+        <div className="grid gap-5 lg:grid-cols-[14rem_minmax(0,1fr)]">
+          <nav aria-label="Catalog category" className="space-y-1">
+            <p className="px-3 pb-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+              Categories
+            </p>
+            <CategoryLink
+              href={`/stores/${store.id}/catalog`}
+              active={!category && !uncategorized}
+            >
+              All products <span>{activeItems.length}</span>
+            </CategoryLink>
+            {activeCategories.map((item) => (
+              <CategoryLink
+                key={item.id}
+                href={`/stores/${store.id}/catalog?category=${encodeURIComponent(item.id)}`}
+                active={item.id === category?.id}
+              >
+                {item.name}{" "}
+                <span>
+                  {
+                    activeItems.filter((pdp) =>
+                      pdp.categoryIds.includes(item.id),
+                    ).length
+                  }
+                </span>
+              </CategoryLink>
             ))}
+            <CategoryLink
+              href={`/stores/${store.id}/catalog?scope=uncategorized`}
+              active={uncategorized}
+            >
+              Uncategorized{" "}
+              <span>
+                {
+                  activeItems.filter(
+                    (item) =>
+                      !item.categoryIds.some((categoryId) =>
+                        activeCategoryIds.has(categoryId),
+                      ),
+                  ).length
+                }
+              </span>
+            </CategoryLink>
+          </nav>
+
+          <div className="min-w-0 space-y-4">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <h2
+                  id="catalog-items-title"
+                  className="font-heading text-xl font-semibold"
+                >
+                  {scopeLabel}
+                </h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {matchingItems.length} matching PDP
+                  {matchingItems.length === 1 ? "" : "s"}
+                </p>
+              </div>
+              <StoreAuditForm
+                storeId={store.id}
+                matchingPdpCount={matchingItems.length}
+                scope={scope}
+                categoryId={category?.id}
+              />
+            </div>
+
+            {matchingItems.length ? (
+              <div className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card">
+                {matchingItems.map((item) => (
+                  <article key={item.id} className="space-y-2 p-4">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge variant={item.active ? "passed" : "secondary"}>
+                        {item.active ? "Active" : "Not seen"}
+                      </Badge>
+                      {item.categoryIds.map((categoryId) => {
+                        const mappedCategory = categoriesById.get(categoryId);
+                        return mappedCategory ? (
+                          <Link
+                            key={categoryId}
+                            href={`/stores/${store.id}/catalog?category=${encodeURIComponent(categoryId)}`}
+                            className="text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+                          >
+                            {mappedCategory.name}
+                          </Link>
+                        ) : null;
+                      })}
+                    </div>
+                    <a
+                      href={item.normalizedUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex max-w-full items-start gap-1 break-words font-mono text-xs underline-offset-4 hover:underline [overflow-wrap:anywhere] focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+                    >
+                      {item.normalizedUrl}
+                      <ExternalLink
+                        className="mt-0.5 size-3 shrink-0"
+                        aria-hidden="true"
+                      />
+                    </a>
+                    <p className="text-xs text-muted-foreground">
+                      First seen{" "}
+                      <time dateTime={item.firstSeenAt}>
+                        {new Date(item.firstSeenAt).toLocaleString()}
+                      </time>
+                      {" · "}Last seen{" "}
+                      <time dateTime={item.lastSeenAt}>
+                        {new Date(item.lastSeenAt).toLocaleString()}
+                      </time>
+                    </p>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <Card className="border-dashed">
+                <CardHeader>
+                  <CardTitle>
+                    {catalog.items.length
+                      ? "No matching product pages"
+                      : catalog.discovery.status === "succeeded"
+                        ? "No product pages found"
+                        : "Catalog is empty"}
+                  </CardTitle>
+                  <CardDescription>
+                    {catalog.items.length
+                      ? "No active PDPs match this catalog segment."
+                      : catalog.discovery.status === "succeeded"
+                        ? "Discovery completed, but the store root page did not expose matching same-origin product links."
+                        : "Run discovery to find product links without entering PDP URLs one by one."}
+                  </CardDescription>
+                </CardHeader>
+              </Card>
+            )}
           </div>
-        ) : (
-          <Card className="border-dashed">
-            <CardHeader>
-              <CardTitle>
-                {catalog.discovery.status === "succeeded"
-                  ? "No product pages found"
-                  : "Catalog is empty"}
-              </CardTitle>
-              <CardDescription>
-                {catalog.discovery.status === "succeeded"
-                  ? "Discovery completed, but the store root page did not expose matching same-origin product links."
-                  : "Run discovery to find product links without entering PDP URLs one by one."}
-              </CardDescription>
-            </CardHeader>
-          </Card>
-        )}
+        </div>
       </section>
     </div>
+  );
+}
+
+function CategoryLink({
+  href,
+  active,
+  children,
+}: {
+  href: string;
+  active: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <Link
+      href={href}
+      aria-current={active ? "page" : undefined}
+      className={`flex items-center justify-between gap-3 rounded-md px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50 ${active ? "bg-interactive font-medium text-foreground" : "text-muted-foreground hover:bg-interactive hover:text-foreground"}`}
+    >
+      {children}
+    </Link>
   );
 }

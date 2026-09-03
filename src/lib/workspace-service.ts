@@ -10,7 +10,10 @@ import type {
   AuditRunReport,
   AuthenticatedUser,
   CatalogDiscovery,
+  CatalogCategory,
   CatalogItem,
+  AuditScopeInput,
+  AuditScopeSnapshot,
   Store,
   StoreAuditRun,
   StoreAuditRunItem,
@@ -22,6 +25,7 @@ import type {
   WorkspaceMember,
   WorkspaceRole,
 } from "@/domain/saas";
+import type { CatalogDiscoveryResult } from "@/lib/catalog-discovery";
 import {
   UnsafeUrlError,
   validatePublicUrl,
@@ -226,7 +230,9 @@ export class WorkspaceService {
          WHERE store_id = ? ORDER BY active DESC, normalized_url`,
       )
       .all(storeId)
-      .map(catalogItemFromRow);
+      .map((row) => catalogItemFromRow(row, this.categoryIdsForItem(String(row.id))));
+    const categories = this.database.prepare("SELECT * FROM catalog_categories WHERE store_id = ? ORDER BY active DESC, name, id").all(storeId).map(catalogCategoryFromRow);
+    const categoryMappings = this.database.prepare("SELECT catalog_item_id, category_id FROM catalog_category_mappings WHERE store_id = ?").all(storeId).map((row) => ({ catalogItemId: String(row.catalog_item_id), categoryId: String(row.category_id) }));
     return {
       discovery: discoveryRow
         ? catalogDiscoveryFromRow(discoveryRow)
@@ -238,8 +244,11 @@ export class WorkspaceService {
             failureCategory: null,
             discoveredCount: 0,
             rejectedCount: 0,
+            partial: false,
           },
       items,
+      categories,
+      categoryMappings,
     };
   }
 
@@ -263,15 +272,16 @@ export class WorkspaceService {
   async completeCatalogDiscovery(
     principal: AuthenticatedUser,
     storeId: string,
-    candidateUrls: string[],
+    candidateUrls: string[] | CatalogDiscoveryResult,
     deadline = Number.POSITIVE_INFINITY,
   ) {
     const store = this.requireStore(principal, storeId);
+    const discovery = Array.isArray(candidateUrls) ? { productUrls: candidateUrls, categories: [], mappings: [], truncated: false } : candidateUrls;
     const normalizedUrls = new Set<string>();
     let rejectedCount = 0;
 
-    const boundedCandidates = candidateUrls.slice(0, 200);
-    rejectedCount += candidateUrls.length - boundedCandidates.length;
+    const boundedCandidates = discovery.productUrls.slice(0, 200);
+    rejectedCount += discovery.productUrls.length - boundedCandidates.length;
     for (const candidate of boundedCandidates) {
       try {
         // Reject a foreign origin before DNS work; same-origin URLs still pass
@@ -313,14 +323,35 @@ export class WorkspaceService {
           completedAt,
           completedAt,
         );
+      this.database.prepare("UPDATE catalog_categories SET active = 0 WHERE store_id = ?").run(store.id);
+      const categoryByUrl = new Map<string, string>();
+      const categoryUpsert = this.database.prepare(`INSERT INTO catalog_categories (id, workspace_id, store_id, normalized_path, name, source, first_seen_at, last_seen_at, active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1) ON CONFLICT(store_id, normalized_path) DO UPDATE SET name = excluded.name, source = excluded.source, last_seen_at = excluded.last_seen_at, active = 1`);
+      for (const candidate of discovery.categories.slice(0, 30)) {
+        try {
+          const url = new URL(candidate.url);
+          if (url.origin !== store.url) { rejectedCount += 1; continue; }
+          const identity = url.pathname.replace(/\/$/, "") || "/";
+          const existing = this.database.prepare("SELECT id FROM catalog_categories WHERE store_id = ? AND normalized_path = ?").get(store.id, identity) as { id: string } | undefined;
+          const id = existing?.id ?? randomUUID();
+          categoryUpsert.run(id, store.workspaceId, store.id, identity, requiredCategoryName(candidate.name), candidate.source ?? "root_page_link", completedAt, completedAt);
+          categoryByUrl.set(url.href, id);
+        } catch { rejectedCount += 1; }
+      }
+      this.database.prepare("DELETE FROM catalog_category_mappings WHERE store_id = ?").run(store.id);
+      const mappingInsert = this.database.prepare("INSERT OR IGNORE INTO catalog_category_mappings (store_id, catalog_item_id, category_id) VALUES (?, ?, ?)");
+      for (const mapping of discovery.mappings) {
+        const categoryId = categoryByUrl.get(normalizedHref(mapping.categoryUrl));
+        const item = this.database.prepare("SELECT id FROM catalog_items WHERE store_id = ? AND normalized_url = ?").get(store.id, normalizedHref(mapping.productUrl)) as { id: string } | undefined;
+        if (categoryId && item) mappingInsert.run(store.id, item.id, categoryId);
+      }
       this.database
         .prepare(
           `UPDATE catalog_discoveries
            SET status = 'succeeded', completed_at = ?, failure_category = NULL,
-               discovered_count = ?, rejected_count = ?
+               discovered_count = ?, rejected_count = ?, partial = ?
            WHERE store_id = ?`,
         )
-        .run(completedAt, normalizedUrls.size, rejectedCount, store.id);
+        .run(completedAt, normalizedUrls.size, rejectedCount, discovery.truncated ? 1 : 0, store.id);
     });
     return this.getStoreCatalog(principal, store.id);
   }
@@ -499,16 +530,23 @@ export class WorkspaceService {
       .map(runFromRow);
   }
 
-  createStoreAuditRun(principal: AuthenticatedUser, storeId: string) {
+  createStoreAuditRun(principal: AuthenticatedUser, storeId: string, input: AuditScopeInput = { kind: "all" }) {
     const store = this.requireStore(principal, storeId);
-    const selected = this.database
-      .prepare(
-        `SELECT id, normalized_url FROM catalog_items
-         WHERE store_id = ? AND active = 1
-         ORDER BY normalized_url, id LIMIT ?`,
-      )
-      .all(storeId, STORE_AUDIT_MAX_PDPS) as Record<string, SQLInputValue>[];
+    const scopeKind = input.kind;
+    const categoryId = input.kind === "category" ? input.categoryId : null;
+    const category = categoryId ? this.database.prepare("SELECT * FROM catalog_categories WHERE id = ? AND store_id = ? AND active = 1").get(categoryId, storeId) : undefined;
+    if (categoryId && !category) throw new AuthorizationError();
+    const matching = this.database.prepare(
+      `SELECT i.id, i.normalized_url FROM catalog_items i
+       WHERE i.store_id = ? AND i.active = 1 AND (
+         ? = 'all' OR (? = 'category' AND EXISTS (SELECT 1 FROM catalog_category_mappings m WHERE m.catalog_item_id = i.id AND m.category_id = ?))
+         OR (? = 'uncategorized' AND NOT EXISTS (SELECT 1 FROM catalog_category_mappings m WHERE m.catalog_item_id = i.id))
+       ) ORDER BY i.normalized_url, i.id`,
+    ).all(storeId, scopeKind, scopeKind, categoryId ?? "", scopeKind) as Record<string, SQLInputValue>[];
+    const selected = matching.slice(0, STORE_AUDIT_MAX_PDPS);
     if (!selected.length) throw new EmptyStoreCatalogError();
+    const catalogDiscovery = this.database.prepare("SELECT partial FROM catalog_discoveries WHERE store_id = ?").get(storeId) as { partial?: number } | undefined;
+    const scope: AuditScopeSnapshot = { kind: scopeKind, categoryId, categoryName: category ? String(category.name) : null, matchingPdpCount: matching.length, executionLimit: STORE_AUDIT_MAX_PDPS, selectedCatalogItemIds: selected.map((item) => String(item.id)), selectionSemantics: "active_catalog_url_order_v1", catalogComplete: !catalogDiscovery?.partial };
 
     const startedAt = new Date().toISOString();
     const run: StoreAuditRun = {
@@ -517,14 +555,9 @@ export class WorkspaceService {
       storeId,
       status: "running",
       selectionMode: "automatic_bounded_active_catalog_v1",
-      selectionSignature: createHash("sha256")
-        .update(
-          JSON.stringify(
-            selected.map((item) => [item.id, item.normalized_url]),
-          ),
-        )
-        .digest("hex"),
+      selectionSignature: createHash("sha256").update(JSON.stringify({ scope, selected: selected.map((item) => [item.id, item.normalized_url]), ruleset: STORE_AUDIT_RULESET_VERSION })).digest("hex"),
       rulesetVersion: STORE_AUDIT_RULESET_VERSION,
+      scope,
       selectedPdpCount: selected.length,
       completedPdpCount: 0,
       failedPdpCount: 0,
@@ -546,9 +579,9 @@ export class WorkspaceService {
         .prepare(
           `INSERT INTO store_audit_runs
             (id, workspace_id, store_id, status, selection_mode, selection_signature,
-             ruleset_version, selected_pdp_count, completed_pdp_count,
+             ruleset_version, scope_snapshot_json, selected_pdp_count, completed_pdp_count,
              failed_pdp_count, started_at)
-           VALUES (?, ?, ?, 'running', ?, ?, ?, ?, 0, 0, ?)`,
+           VALUES (?, ?, ?, 'running', ?, ?, ?, ?, ?, 0, 0, ?)`,
         )
         .run(
           run.id,
@@ -557,6 +590,7 @@ export class WorkspaceService {
           run.selectionMode,
           run.selectionSignature,
           run.rulesetVersion,
+          JSON.stringify(run.scope),
           run.selectedPdpCount,
           run.startedAt,
         );
@@ -863,6 +897,10 @@ export class WorkspaceService {
     return storeAuditRunFromRow(row);
   }
 
+  private categoryIdsForItem(catalogItemId: string) {
+    return this.database.prepare("SELECT category_id FROM catalog_category_mappings WHERE catalog_item_id = ? ORDER BY category_id").all(catalogItemId).map((row) => String(row.category_id));
+  }
+
   private issueRows(storeAuditRunId: string) {
     return this.database
       .prepare(
@@ -918,7 +956,8 @@ export class WorkspaceService {
     };
 
     const current = aggregate(run.id, run.completedPdpCount);
-    if (run.status !== "completed") return [...current.values()];
+    if (run.status !== "completed" || !run.scope.catalogComplete)
+      return [...current.values()];
     const previousRow = this.database
       .prepare(
         `SELECT * FROM store_audit_runs
@@ -1059,6 +1098,7 @@ export class WorkspaceService {
         failure_category TEXT CHECK (failure_category IN ('infrastructure', 'timeout', 'unsafe_url')),
         discovered_count INTEGER NOT NULL DEFAULT 0 CHECK (discovered_count >= 0),
         rejected_count INTEGER NOT NULL DEFAULT 0 CHECK (rejected_count >= 0),
+        partial INTEGER NOT NULL DEFAULT 0 CHECK (partial IN (0, 1)),
         PRIMARY KEY (store_id),
         FOREIGN KEY (store_id, workspace_id) REFERENCES stores(id, workspace_id) ON DELETE CASCADE
       );
@@ -1083,6 +1123,7 @@ export class WorkspaceService {
         selection_mode TEXT NOT NULL CHECK (selection_mode = 'automatic_bounded_active_catalog_v1'),
         selection_signature TEXT NOT NULL,
         ruleset_version TEXT NOT NULL,
+        scope_snapshot_json TEXT,
         selected_pdp_count INTEGER NOT NULL CHECK (selected_pdp_count BETWEEN 1 AND 5),
         completed_pdp_count INTEGER NOT NULL DEFAULT 0 CHECK (completed_pdp_count >= 0),
         failed_pdp_count INTEGER NOT NULL DEFAULT 0 CHECK (failed_pdp_count >= 0),
@@ -1111,6 +1152,25 @@ export class WorkspaceService {
         FOREIGN KEY (catalog_item_id) REFERENCES catalog_items(id),
         FOREIGN KEY (audit_run_id, workspace_id) REFERENCES audit_runs(id, workspace_id)
       );
+      CREATE TABLE IF NOT EXISTS catalog_categories (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL,
+        store_id TEXT NOT NULL,
+        normalized_path TEXT NOT NULL,
+        name TEXT NOT NULL,
+        source TEXT NOT NULL CHECK (source IN ('root_page_link', 'category_page_link')),
+        first_seen_at TEXT NOT NULL,
+        last_seen_at TEXT NOT NULL,
+        active INTEGER NOT NULL CHECK (active IN (0, 1)),
+        UNIQUE (store_id, normalized_path),
+        FOREIGN KEY (store_id, workspace_id) REFERENCES stores(id, workspace_id) ON DELETE CASCADE
+      );
+      CREATE TABLE IF NOT EXISTS catalog_category_mappings (
+        store_id TEXT NOT NULL,
+        catalog_item_id TEXT NOT NULL REFERENCES catalog_items(id) ON DELETE CASCADE,
+        category_id TEXT NOT NULL REFERENCES catalog_categories(id) ON DELETE CASCADE,
+        PRIMARY KEY (catalog_item_id, category_id)
+      );
       CREATE TABLE IF NOT EXISTS findings (
         id TEXT NOT NULL,
         audit_run_id TEXT NOT NULL,
@@ -1138,9 +1198,14 @@ export class WorkspaceService {
       CREATE INDEX IF NOT EXISTS runs_store ON audit_runs(store_id, created_at);
       CREATE INDEX IF NOT EXISTS artifacts_run ON artifacts(audit_run_id);
       CREATE INDEX IF NOT EXISTS catalog_items_store ON catalog_items(store_id, active);
+      CREATE INDEX IF NOT EXISTS catalog_categories_store ON catalog_categories(store_id, active);
+      CREATE INDEX IF NOT EXISTS catalog_category_mappings_category ON catalog_category_mappings(category_id, catalog_item_id);
       CREATE INDEX IF NOT EXISTS store_audit_runs_store ON store_audit_runs(store_id, started_at);
       CREATE INDEX IF NOT EXISTS store_audit_items_parent ON store_audit_run_items(store_audit_run_id, position);
     `);
+    const columns = (table: string) => this.database.prepare(`PRAGMA table_info(${table})`).all().map((row) => String(row.name));
+    if (!columns("catalog_discoveries").includes("partial")) this.database.exec("ALTER TABLE catalog_discoveries ADD COLUMN partial INTEGER NOT NULL DEFAULT 0 CHECK (partial IN (0, 1))");
+    if (!columns("store_audit_runs").includes("scope_snapshot_json")) this.database.exec("ALTER TABLE store_audit_runs ADD COLUMN scope_snapshot_json TEXT");
   }
 }
 
@@ -1155,6 +1220,17 @@ function requiredName(value: string) {
   if (!name || name.length > 120)
     throw new Error("Name must be 1–120 characters.");
   return name;
+}
+
+function requiredCategoryName(value: string) {
+  const name = value.trim().replace(/\s+/g, " ");
+  return name && name.length <= 120 ? name : "Unlabeled category";
+}
+
+function normalizedHref(value: string) {
+  const url = new URL(value);
+  url.hash = "";
+  return url.href;
 }
 
 async function validateBeforeDeadline(
@@ -1261,10 +1337,11 @@ function catalogDiscoveryFromRow(
       : null,
     discoveredCount: Number(row.discovered_count),
     rejectedCount: Number(row.rejected_count),
+    partial: Number(row.partial ?? 0) === 1,
   };
 }
 
-function catalogItemFromRow(row: Record<string, SQLInputValue>): CatalogItem {
+function catalogItemFromRow(row: Record<string, SQLInputValue>, categoryIds: string[] = []): CatalogItem {
   return {
     id: String(row.id),
     workspaceId: String(row.workspace_id),
@@ -1274,7 +1351,12 @@ function catalogItemFromRow(row: Record<string, SQLInputValue>): CatalogItem {
     firstSeenAt: String(row.first_seen_at),
     lastSeenAt: String(row.last_seen_at),
     active: Number(row.active) === 1,
+    categoryIds,
   };
+}
+
+function catalogCategoryFromRow(row: Record<string, SQLInputValue>): CatalogCategory {
+  return { id: String(row.id), workspaceId: String(row.workspace_id), storeId: String(row.store_id), normalizedPath: String(row.normalized_path), name: String(row.name), source: String(row.source) as CatalogCategory["source"], firstSeenAt: String(row.first_seen_at), lastSeenAt: String(row.last_seen_at), active: Number(row.active) === 1 };
 }
 
 function storeAuditRunFromRow(
@@ -1288,6 +1370,7 @@ function storeAuditRunFromRow(
     selectionMode: "automatic_bounded_active_catalog_v1",
     selectionSignature: String(row.selection_signature),
     rulesetVersion: String(row.ruleset_version),
+    scope: row.scope_snapshot_json ? JSON.parse(String(row.scope_snapshot_json)) as AuditScopeSnapshot : { kind: "all", categoryId: null, categoryName: null, matchingPdpCount: Number(row.selected_pdp_count), executionLimit: STORE_AUDIT_MAX_PDPS, selectedCatalogItemIds: [], selectionSemantics: "active_catalog_url_order_v1", catalogComplete: true },
     selectedPdpCount: Number(row.selected_pdp_count),
     completedPdpCount: Number(row.completed_pdp_count),
     failedPdpCount: Number(row.failed_pdp_count),

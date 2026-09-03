@@ -27,11 +27,20 @@ export interface CatalogActionState {
 export async function createStoreAuditAction(
   storeId: string,
   _previousState: CatalogActionState,
+  formData: FormData,
 ): Promise<CatalogActionState> {
   void _previousState;
+  const categoryId = text(formData, "categoryId");
+  const scope = text(formData, "scope");
+  const auditScope =
+    scope === "uncategorized"
+      ? { kind: "uncategorized" as const }
+      : categoryId
+        ? { kind: "category" as const, categoryId }
+        : { kind: "all" as const };
   let run;
   try {
-    run = await executeStoreAuditForApp(storeId);
+    run = await executeStoreAuditForApp(storeId, auditScope);
   } catch (error) {
     unstable_rethrow(error);
     if (

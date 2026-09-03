@@ -53,6 +53,40 @@ export interface CatalogItem {
   firstSeenAt: string;
   lastSeenAt: string;
   active: boolean;
+  categoryIds: string[];
+}
+
+export interface CatalogCategory {
+  id: string;
+  workspaceId: string;
+  storeId: string;
+  normalizedPath: string;
+  name: string;
+  source: "root_page_link" | "category_page_link";
+  firstSeenAt: string;
+  lastSeenAt: string;
+  active: boolean;
+}
+
+export interface CatalogCategoryMapping {
+  catalogItemId: string;
+  categoryId: string;
+}
+
+export type AuditScopeInput =
+  | { kind: "all" }
+  | { kind: "category"; categoryId: string }
+  | { kind: "uncategorized" };
+
+export interface AuditScopeSnapshot {
+  kind: AuditScopeInput["kind"];
+  categoryId: string | null;
+  categoryName: string | null;
+  matchingPdpCount: number;
+  executionLimit: number;
+  selectedCatalogItemIds: string[];
+  selectionSemantics: "active_catalog_url_order_v1";
+  catalogComplete: boolean;
 }
 
 export interface CatalogDiscovery {
@@ -63,11 +97,14 @@ export interface CatalogDiscovery {
   failureCategory: "infrastructure" | "timeout" | "unsafe_url" | null;
   discoveredCount: number;
   rejectedCount: number;
+  partial: boolean;
 }
 
 export interface StoreCatalog {
   discovery: CatalogDiscovery;
   items: CatalogItem[];
+  categories: CatalogCategory[];
+  categoryMappings: CatalogCategoryMapping[];
 }
 
 export interface AuditRun {
@@ -116,6 +153,7 @@ export interface StoreAuditRun {
   selectionMode: "automatic_bounded_active_catalog_v1";
   selectionSignature: string;
   rulesetVersion: string;
+  scope: AuditScopeSnapshot;
   selectedPdpCount: number;
   completedPdpCount: number;
   failedPdpCount: number;

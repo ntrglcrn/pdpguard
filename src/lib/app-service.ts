@@ -5,7 +5,7 @@ import path from "node:path";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
-import type { AuthenticatedUser } from "@/domain/saas";
+import type { AuthenticatedUser, AuditScopeInput } from "@/domain/saas";
 import {
   executeCatalogStoreAudit,
   executeQuickAudit,
@@ -124,12 +124,13 @@ export async function executeAuditForApp(storeId: string, targetUrl: string) {
   );
 }
 
-export async function executeStoreAuditForApp(storeId: string) {
+export async function executeStoreAuditForApp(storeId: string, scope: AuditScopeInput = { kind: "all" }) {
   const service = getWorkspaceService();
   return executeCatalogStoreAudit(
     service,
     await getPrincipal(`/stores/${storeId}`),
     storeId,
+    scope,
   );
 }
 

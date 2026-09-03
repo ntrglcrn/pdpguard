@@ -22,7 +22,9 @@ export default async function StoreAuditRunPage({
   return (
     <div className="space-y-8">
       <nav aria-label="Breadcrumb" className="text-sm text-muted-foreground">
-        <Link href="/stores" className="hover:text-foreground">Stores</Link>
+        <Link href="/stores" className="hover:text-foreground">
+          Stores
+        </Link>
         <span aria-hidden="true"> / </span>
         <Link href={`/stores/${store.id}`} className="hover:text-foreground">
           {store.name}
@@ -42,7 +44,11 @@ export default async function StoreAuditRunPage({
           Store quality audit
         </h1>
         <p className="text-sm text-muted-foreground">
-          {run.completedPdpCount} / {run.selectedPdpCount} PDPs completed
+          Scope: {scopeLabel(run)} · {run.scope.matchingPdpCount} matching ·{" "}
+          {run.scope.selectedCatalogItemIds.length || run.selectedPdpCount}{" "}
+          selected
+          {" · "}
+          {run.completedPdpCount} completed
           {run.failedPdpCount ? ` · ${run.failedPdpCount} failed` : ""}
         </p>
       </header>
@@ -52,7 +58,8 @@ export default async function StoreAuditRunPage({
           <CardHeader>
             <CardTitle>Auditing PDPs</CardTitle>
             <CardDescription>
-              Persisted progress: {run.completedPdpCount + run.failedPdpCount} / {run.selectedPdpCount} processed. Refresh to check again.
+              Persisted progress: {run.completedPdpCount + run.failedPdpCount} /{" "}
+              {run.selectedPdpCount} processed. Refresh to check again.
             </CardDescription>
           </CardHeader>
         </Card>
@@ -72,7 +79,9 @@ export default async function StoreAuditRunPage({
 
       <section aria-labelledby="issues-title" className="space-y-4">
         <div>
-          <h2 id="issues-title" className="font-heading text-xl font-semibold">Issues</h2>
+          <h2 id="issues-title" className="font-heading text-xl font-semibold">
+            Issues
+          </h2>
           <p className="mt-1 text-sm text-muted-foreground">
             Failed findings grouped only by stable rule ID.
           </p>
@@ -84,24 +93,39 @@ export default async function StoreAuditRunPage({
                 <div className="flex flex-wrap items-center gap-2">
                   <Badge variant={issue.severity}>{issue.severity}</Badge>
                   {issue.lifecycle && (
-                    <Badge variant="secondary" className="capitalize">{issue.lifecycle}</Badge>
+                    <Badge variant="secondary" className="capitalize">
+                      {issue.lifecycle}
+                    </Badge>
                   )}
-                  <span className="font-mono text-xs text-muted-foreground">{issue.ruleId}</span>
+                  <span className="font-mono text-xs text-muted-foreground">
+                    {issue.ruleId}
+                  </span>
                 </div>
                 <div>
                   <h3 className="font-heading font-semibold">{issue.title}</h3>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    Affected: {issue.affectedPdpCount} / {issue.auditedPdpCount} audited PDPs
+                    Affected: {issue.affectedPdpCount} / {issue.auditedPdpCount}{" "}
+                    audited PDPs
                   </p>
                 </div>
                 <ul className="space-y-2">
                   {issue.affectedPdps.map((pdp) => (
-                    <li key={`${issue.ruleId}-${pdp.auditRunId}`} className="flex flex-col gap-2 rounded-lg bg-muted p-3 sm:flex-row sm:items-center sm:justify-between">
+                    <li
+                      key={`${issue.ruleId}-${pdp.auditRunId}`}
+                      className="flex flex-col gap-2 rounded-lg bg-muted p-3 sm:flex-row sm:items-center sm:justify-between"
+                    >
                       <span className="min-w-0 break-words font-mono text-xs [overflow-wrap:anywhere]">
                         {pdp.pageTitle || pdp.normalizedUrl}
                       </span>
-                      <Button variant="ghost" size="sm" asChild className="self-start sm:self-auto">
-                        <Link href={`/runs/${pdp.auditRunId}`}>Finding &amp; evidence</Link>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        asChild
+                        className="self-start sm:self-auto"
+                      >
+                        <Link href={`/runs/${pdp.auditRunId}`}>
+                          Finding &amp; evidence
+                        </Link>
                       </Button>
                     </li>
                   ))}
@@ -124,16 +148,32 @@ export default async function StoreAuditRunPage({
       </section>
 
       <section aria-labelledby="pdps-title" className="space-y-4">
-        <h2 id="pdps-title" className="font-heading text-xl font-semibold">Selected PDPs</h2>
+        <h2 id="pdps-title" className="font-heading text-xl font-semibold">
+          Selected PDPs
+        </h2>
         <div className="divide-y divide-border rounded-xl border border-border bg-card">
           {run.items.map((item) => (
-            <div key={item.id} className="flex flex-col gap-2 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div
+              key={item.id}
+              className="flex flex-col gap-2 p-4 sm:flex-row sm:items-center sm:justify-between"
+            >
               <div className="min-w-0">
-                <p className="break-words font-mono text-xs [overflow-wrap:anywhere]">{item.normalizedUrl}</p>
-                {item.failureCategory && <p className="mt-1 text-xs text-destructive">Failed: {item.failureCategory}</p>}
+                <p className="break-words font-mono text-xs [overflow-wrap:anywhere]">
+                  {item.normalizedUrl}
+                </p>
+                {item.failureCategory && (
+                  <p className="mt-1 text-xs text-destructive">
+                    Failed: {item.failureCategory}
+                  </p>
+                )}
               </div>
               {item.auditRunId && (
-                <Button variant="ghost" size="sm" asChild className="self-start sm:self-auto">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  asChild
+                  className="self-start sm:self-auto"
+                >
                   <Link href={`/runs/${item.auditRunId}`}>View PDP run</Link>
                 </Button>
               )}
@@ -143,4 +183,17 @@ export default async function StoreAuditRunPage({
       </section>
     </div>
   );
+}
+
+function scopeLabel(run: {
+  scope: {
+    kind: "all" | "category" | "uncategorized";
+    categoryName: string | null;
+  };
+}) {
+  return run.scope.kind === "category"
+    ? (run.scope.categoryName ?? "Category")
+    : run.scope.kind === "uncategorized"
+      ? "Uncategorized"
+      : "All products";
 }

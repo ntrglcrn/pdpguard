@@ -270,6 +270,25 @@ describe("WorkspaceService", () => {
     value.close();
   });
 
+  it("uses category and uncategorized scopes in immutable selection snapshots", async () => {
+    const { value } = service();
+    const principal = value.authenticateSession(value.issueSession("owner").token);
+    const workspace = value.createWorkspace(principal, "Acme");
+    const store = await value.createStore(principal, workspace.id, { url: "https://example.com" });
+    value.startCatalogDiscovery(principal, store.id);
+    const catalog = await value.completeCatalogDiscovery(principal, store.id, {
+      productUrls: ["https://example.com/products/a", "https://example.com/products/b"],
+      categories: [{ url: "https://example.com/collections/rings", name: "Rings" }],
+      mappings: [{ productUrl: "https://example.com/products/a", categoryUrl: "https://example.com/collections/rings" }],
+      truncated: false,
+    });
+    const scoped = value.createStoreAuditRun(principal, store.id, { kind: "category", categoryId: catalog.categories[0].id });
+    expect(scoped.run.scope).toMatchObject({ kind: "category", matchingPdpCount: 1, categoryName: "Rings" });
+    expect(scoped.items.map((item) => item.normalizedUrl)).toEqual(["https://example.com/products/a"]);
+    expect(value.createStoreAuditRun(principal, store.id, { kind: "uncategorized" }).items.map((item) => item.normalizedUrl)).toEqual(["https://example.com/products/b"]);
+    value.close();
+  });
+
   it("keeps Store Audit children out of Quick Audit history and persists partial progress", async () => {
     const { value } = service();
     const principal = value.authenticateSession(value.issueSession("owner").token);

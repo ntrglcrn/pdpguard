@@ -3,19 +3,24 @@
 import { useActionState } from "react";
 import { ShieldCheck } from "lucide-react";
 
-import {
-  createStoreAuditAction,
-  type CatalogActionState,
-} from "@/app/actions";
+import { createStoreAuditAction, type CatalogActionState } from "@/app/actions";
 import { Button } from "@/components/ui/button";
 
 export function StoreAuditForm({
   storeId,
+  matchingPdpCount,
   activePdpCount,
+  scope = "all",
+  categoryId,
 }: {
   storeId: string;
-  activePdpCount: number;
+  matchingPdpCount?: number;
+  /** @deprecated Catalog callers should pass the scoped matching count. */
+  activePdpCount?: number;
+  scope?: "all" | "uncategorized" | "category";
+  categoryId?: string;
 }) {
+  const matchingCount = matchingPdpCount ?? activePdpCount ?? 0;
   const [state, action, pending] = useActionState(
     createStoreAuditAction.bind(null, storeId),
     {} as CatalogActionState,
@@ -23,13 +28,17 @@ export function StoreAuditForm({
 
   return (
     <form action={action} aria-busy={pending} className="space-y-2">
-      <Button type="submit" size="lg" disabled={pending || !activePdpCount}>
+      <input type="hidden" name="scope" value={scope} />
+      {categoryId && (
+        <input type="hidden" name="categoryId" value={categoryId} />
+      )}
+      <Button type="submit" size="lg" disabled={pending || !matchingCount}>
         <ShieldCheck data-icon="inline-start" aria-hidden="true" />
         {pending ? "Auditing PDPs…" : "Run Store Audit"}
       </Button>
       <p className="max-w-sm text-xs text-muted-foreground">
-        Automatic bounded v1 selection: up to 5 active catalog PDPs, audited
-        serially.
+        {matchingCount} matching PDP{matchingCount === 1 ? "" : "s"}; up to 5
+        are selected deterministically and audited serially.
       </p>
       {pending && (
         <p className="text-sm text-muted-foreground" role="status">

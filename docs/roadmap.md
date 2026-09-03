@@ -23,15 +23,14 @@ The primary Store workflow has its catalog foundation, but is not yet a
 store-quality workflow:
 
 - **Catalog Discovery and PDP Inventory:** implemented locally. A Store-scoped,
-  bounded root-page link discovery persists exact normalized same-origin PDP
-  URLs, source, first/last seen, active/missing state and discovery outcome in
-  the SaaS UI. Product identity/canonical observation is intentionally absent:
-  the current mechanism cannot determine it reliably.
-- **Store Audit and Issues:** implemented locally. A Store Audit snapshots up
-  to five active inventory PDPs in deterministic URL order, reuses the existing
-  serial browser audit boundary, persists child PDP runs, and aggregates failed
-  findings by stable rule ID. Comparison is conservative: only identical,
-  complete snapshots receive `new`, `unchanged`, `resolved`, or `regressed`.
+  bounded root/category-page discovery persists exact normalized same-origin PDP
+  URLs and evidence-backed categories with active/missing state. PDPs may map to
+  multiple categories; unmapped PDPs remain Uncategorized.
+- **Store Audit and Issues:** implemented locally. A Store Audit scopes all,
+  one category, or Uncategorized PDPs, then deterministically selects up to five
+  active matches. It snapshots immutable criteria and membership, reuses the
+  serial browser audit boundary, and aggregates failed findings by stable rule
+  ID. Only identical complete snapshots receive lifecycle states.
 - **Monitoring:** not implemented. Manual catalog refresh exists, but there is
   no comparison, schedule, notification, or integration.
 
@@ -179,8 +178,8 @@ Audit.
 
 ## Current focus
 
-**Catalog Segmentation & Audit Scopes:** build on the persisted Store Audit
-selection seam without weakening its bounds or comparability invariants.
+**Manual Monitoring v1:** compare compatible, complete scoped Store Audits
+without weakening catalog, URL-safety, or lifecycle invariants.
 
 ## Release gates
 
