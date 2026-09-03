@@ -223,4 +223,64 @@ describe("WorkspaceService", () => {
     ).rejects.toThrow(UnsafeUrlError);
     value.close();
   });
+
+  it("snapshots at most five active catalog PDPs in stable URL order", async () => {
+    const { value } = service();
+    const principal = value.authenticateSession(value.issueSession("owner").token);
+    const workspace = value.createWorkspace(principal, "Acme");
+    const store = await value.createStore(principal, workspace.id, {
+      url: "https://example.com",
+    });
+    value.startCatalogDiscovery(principal, store.id);
+    await value.completeCatalogDiscovery(principal, store.id, [
+      "https://example.com/z",
+      "https://example.com/a",
+      "https://example.com/e",
+      "https://example.com/b",
+      "https://example.com/d",
+      "https://example.com/c",
+    ]);
+
+    const { run, items } = value.createStoreAuditRun(principal, store.id);
+    expect(run.selectedPdpCount).toBe(5);
+    expect(items.map((item) => item.normalizedUrl)).toEqual([
+      "https://example.com/a",
+      "https://example.com/b",
+      "https://example.com/c",
+      "https://example.com/d",
+      "https://example.com/e",
+    ]);
+    value.close();
+  });
+
+  it("keeps Store Audit children out of Quick Audit history and persists partial progress", async () => {
+    const { value } = service();
+    const principal = value.authenticateSession(value.issueSession("owner").token);
+    const workspace = value.createWorkspace(principal, "Acme");
+    const store = await value.createStore(principal, workspace.id, {
+      url: "https://example.com",
+    });
+    value.startCatalogDiscovery(principal, store.id);
+    await value.completeCatalogDiscovery(principal, store.id, [
+      "https://example.com/a",
+      "https://example.com/b",
+    ]);
+    const { run: parent, items } = value.createStoreAuditRun(principal, store.id);
+    const { run: child, worker } = await value.createAuditRun(
+      principal,
+      store.id,
+      items[0].normalizedUrl,
+    );
+    value.linkStoreAuditRunItem(principal, parent.id, items[0].id, child.id);
+    value.startAuditRun(worker);
+    value.completeAuditRun(worker, { ...result(), auditedUrl: child.targetUrl, finalUrl: child.targetUrl, screenshot: { id: "child-artifact", url: "/api/artifacts/child-artifact" } }, { id: "child-artifact", contents: Buffer.from("screenshot") });
+    value.recordStoreAuditItemFailure(principal, parent.id, items[1].id, "timeout");
+    const report = value.completeStoreAuditRun(principal, parent.id);
+
+    expect(report).toMatchObject({ status: "completed_with_failures", completedPdpCount: 1, failedPdpCount: 1 });
+    expect(value.listAuditRuns(principal, store.id)).toEqual([]);
+    expect(report.items[0].auditRunId).toBe(child.id);
+    expect(report.items[1].failureCategory).toBe("timeout");
+    value.close();
+  });
 });

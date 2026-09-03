@@ -5,6 +5,12 @@ export type AuditRunStatus =
   "queued" | "running" | "completed" | "failed" | "cancelled";
 export type CatalogDiscoveryStatus =
   "not_started" | "running" | "succeeded" | "failed";
+export type StoreAuditRunStatus =
+  | "running"
+  | "completed"
+  | "completed_with_failures"
+  | "failed";
+export type IssueLifecycle = "new" | "unchanged" | "resolved" | "regressed";
 
 export interface AuthenticatedUser {
   kind: "user";
@@ -94,4 +100,60 @@ export interface ArtifactReference {
 export interface AuditRunReport extends AuditRun {
   findings: StoredFinding[];
   artifacts: ArtifactReference[];
+}
+
+export interface StoreAuditSummary {
+  issueCount: number;
+  criticalCount: number;
+  warningCount: number;
+}
+
+export interface StoreAuditRun {
+  id: string;
+  workspaceId: string;
+  storeId: string;
+  status: StoreAuditRunStatus;
+  selectionMode: "automatic_bounded_active_catalog_v1";
+  selectionSignature: string;
+  rulesetVersion: string;
+  selectedPdpCount: number;
+  completedPdpCount: number;
+  failedPdpCount: number;
+  startedAt: string;
+  completedAt: string | null;
+  summary: StoreAuditSummary | null;
+}
+
+export interface StoreAuditRunItem {
+  id: string;
+  storeAuditRunId: string;
+  catalogItemId: string;
+  normalizedUrl: string;
+  position: number;
+  auditRunId: string | null;
+  failureCategory: AuditRun["failureCategory"];
+}
+
+export interface StoreIssueAffectedPdp {
+  catalogItemId: string;
+  normalizedUrl: string;
+  auditRunId: string;
+  pageTitle: string;
+  finding: StoredFinding;
+  artifacts: ArtifactReference[];
+}
+
+export interface StoreIssue {
+  ruleId: string;
+  severity: Finding["severity"];
+  title: string;
+  affectedPdpCount: number;
+  auditedPdpCount: number;
+  lifecycle: IssueLifecycle | null;
+  affectedPdps: StoreIssueAffectedPdp[];
+}
+
+export interface StoreAuditRunReport extends StoreAuditRun {
+  items: StoreAuditRunItem[];
+  issues: StoreIssue[];
 }

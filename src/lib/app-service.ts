@@ -6,7 +6,10 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
 import type { AuthenticatedUser } from "@/domain/saas";
-import { executeStoreAudit } from "@/lib/audit-execution";
+import {
+  executeCatalogStoreAudit,
+  executeQuickAudit,
+} from "@/lib/audit-execution";
 import { executeCatalogDiscovery } from "@/lib/catalog-discovery";
 import {
   AuthorizationError,
@@ -55,7 +58,12 @@ export async function getStoreForApp(storeId: string) {
   const principal = await getPrincipal(`/stores/${storeId}`);
   try {
     const store = service.getStore(principal, storeId);
-    return { store, runs: service.listAuditRuns(principal, store.id) };
+    return {
+      store,
+      runs: service.listAuditRuns(principal, store.id),
+      storeAuditRuns: service.listStoreAuditRuns(principal, store.id),
+      catalog: service.getStoreCatalog(principal, store.id),
+    };
   } catch (error) {
     if (error instanceof AuthorizationError) return null;
     throw error;
@@ -86,6 +94,18 @@ export async function getRunForApp(runId: string) {
   }
 }
 
+export async function getStoreAuditRunForApp(storeAuditRunId: string) {
+  const service = getWorkspaceService();
+  const principal = await getPrincipal("/stores");
+  try {
+    const run = service.getStoreAuditRun(principal, storeAuditRunId);
+    return { run, store: service.getStore(principal, run.storeId) };
+  } catch (error) {
+    if (error instanceof AuthorizationError) return null;
+    throw error;
+  }
+}
+
 export async function createStoreForApp(input: { name?: string; url: string }) {
   const service = getWorkspaceService();
   const principal = await getPrincipal("/stores/new");
@@ -96,11 +116,20 @@ export async function createStoreForApp(input: { name?: string; url: string }) {
 
 export async function executeAuditForApp(storeId: string, targetUrl: string) {
   const service = getWorkspaceService();
-  return executeStoreAudit(
+  return executeQuickAudit(
     service,
     await getPrincipal(`/stores/${storeId}/runs/new`),
     storeId,
     targetUrl,
+  );
+}
+
+export async function executeStoreAuditForApp(storeId: string) {
+  const service = getWorkspaceService();
+  return executeCatalogStoreAudit(
+    service,
+    await getPrincipal(`/stores/${storeId}`),
+    storeId,
   );
 }
 

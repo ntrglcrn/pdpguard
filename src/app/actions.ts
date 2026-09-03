@@ -8,9 +8,11 @@ import {
   createStoreForApp,
   discoverCatalogForApp,
   executeAuditForApp,
+  executeStoreAuditForApp,
 } from "@/lib/app-service";
 import { CatalogDiscoveryBusyError } from "@/lib/catalog-discovery";
 import { UnsafeUrlError } from "@/lib/url-safety";
+import { EmptyStoreCatalogError } from "@/lib/workspace-service";
 
 export interface FormActionState {
   error?: string;
@@ -20,6 +22,27 @@ export interface FormActionState {
 
 export interface CatalogActionState {
   error?: string;
+}
+
+export async function createStoreAuditAction(
+  storeId: string,
+  _previousState: CatalogActionState,
+): Promise<CatalogActionState> {
+  void _previousState;
+  let run;
+  try {
+    run = await executeStoreAuditForApp(storeId);
+  } catch (error) {
+    unstable_rethrow(error);
+    if (
+      error instanceof AuditBusyError ||
+      error instanceof EmptyStoreCatalogError
+    )
+      return { error: error.message };
+    return { error: "The Store Audit could not be completed. Try again." };
+  }
+  revalidatePath(`/stores/${storeId}`);
+  redirect(`/stores/${storeId}/quality/${run.id}`);
 }
 
 export async function createStoreAction(

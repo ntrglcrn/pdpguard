@@ -27,11 +27,11 @@ store-quality workflow:
   URLs, source, first/last seen, active/missing state and discovery outcome in
   the SaaS UI. Product identity/canonical observation is intentionally absent:
   the current mechanism cannot determine it reliably.
-- **Store Audit:** not implemented. Despite its internal function name,
-  `executeStoreAudit` persists one synchronous manual PDP Quick Audit; it cannot
-  select or audit an inventory.
-- **Issues:** not implemented. Findings are correctly one rule/problem on one
-  run, but there is no cross-PDP aggregation or lifecycle state.
+- **Store Audit and Issues:** implemented locally. A Store Audit snapshots up
+  to five active inventory PDPs in deterministic URL order, reuses the existing
+  serial browser audit boundary, persists child PDP runs, and aggregates failed
+  findings by stable rule ID. Comparison is conservative: only identical,
+  complete snapshots receive `new`, `unchanged`, `resolved`, or `regressed`.
 - **Monitoring:** not implemented. Manual catalog refresh exists, but there is
   no comparison, schedule, notification, or integration.
 
@@ -179,8 +179,8 @@ Audit.
 
 ## Current focus
 
-**Store Audit v1:** run the existing PDP audit over an explicit, bounded Store
-inventory selection while retaining Quick Audit.
+**Catalog Segmentation & Audit Scopes:** build on the persisted Store Audit
+selection seam without weakening its bounds or comparability invariants.
 
 ## Release gates
 
