@@ -383,6 +383,11 @@ describe("WorkspaceService", () => {
     expect(report.lastConfirmed?.id).toBe(baseline.id);
     expect(report.currentIssues).toHaveLength(1);
     expect(report.history).toHaveLength(2);
+    (value as unknown as { database: { prepare(sql: string): { run(...values: string[]): void } } }).database
+      .prepare("UPDATE store_audit_runs SET scope_snapshot_json = NULL WHERE id = ?")
+      .run(baseline.id);
+    const legacyTarget = value.listMonitoringTargets(principal, store.id)[0];
+    expect(value.getMonitoringReport(principal, store.id, legacyTarget.referenceRunId).latestAttempt.id).toBe(partial.run.id);
     value.close();
   });
 });

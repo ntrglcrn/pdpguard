@@ -774,10 +774,10 @@ export class WorkspaceService {
       .prepare(
         `SELECT * FROM (
            SELECT *, ROW_NUMBER() OVER (
-             PARTITION BY json_extract(scope_snapshot_json, '$.kind'),
+             PARTITION BY COALESCE(json_extract(scope_snapshot_json, '$.kind'), 'all'),
              COALESCE(json_extract(scope_snapshot_json, '$.categoryId'), ''),
-             json_extract(scope_snapshot_json, '$.selectionSemantics'),
-             json_extract(scope_snapshot_json, '$.executionLimit')
+             COALESCE(json_extract(scope_snapshot_json, '$.selectionSemantics'), 'active_catalog_url_order_v1'),
+             COALESCE(json_extract(scope_snapshot_json, '$.executionLimit'), 5)
              ORDER BY started_at DESC, id DESC
            ) AS position FROM store_audit_runs WHERE store_id = ?
          ) WHERE position = 1 ORDER BY started_at DESC, id DESC LIMIT 30`,
@@ -791,10 +791,10 @@ export class WorkspaceService {
       if (!target) {
         const confirmed = this.database.prepare(
           `SELECT * FROM store_audit_runs WHERE store_id = ? AND status = 'completed'
-           AND json_extract(scope_snapshot_json, '$.kind') = ?
+           AND COALESCE(json_extract(scope_snapshot_json, '$.kind'), 'all') = ?
            AND COALESCE(json_extract(scope_snapshot_json, '$.categoryId'), '') = ?
-           AND json_extract(scope_snapshot_json, '$.selectionSemantics') = ?
-           AND json_extract(scope_snapshot_json, '$.executionLimit') = ?
+           AND COALESCE(json_extract(scope_snapshot_json, '$.selectionSemantics'), 'active_catalog_url_order_v1') = ?
+           AND COALESCE(json_extract(scope_snapshot_json, '$.executionLimit'), 5) = ?
            ORDER BY started_at DESC, id DESC LIMIT 1`,
         ).get(storeId, run.scope.kind, run.scope.categoryId ?? "", run.scope.selectionSemantics, run.scope.executionLimit);
         targets.set(key, {
@@ -818,10 +818,10 @@ export class WorkspaceService {
     this.requireStore(principal, storeId);
     const reference = this.requireStoreAuditRun(principal, referenceRunId);
     if (reference.storeId !== storeId) throw new AuthorizationError();
-    const scopeWhere = `store_id = ? AND json_extract(scope_snapshot_json, '$.kind') = ?
+    const scopeWhere = `store_id = ? AND COALESCE(json_extract(scope_snapshot_json, '$.kind'), 'all') = ?
       AND COALESCE(json_extract(scope_snapshot_json, '$.categoryId'), '') = ?
-      AND json_extract(scope_snapshot_json, '$.selectionSemantics') = ?
-      AND json_extract(scope_snapshot_json, '$.executionLimit') = ?`;
+      AND COALESCE(json_extract(scope_snapshot_json, '$.selectionSemantics'), 'active_catalog_url_order_v1') = ?
+      AND COALESCE(json_extract(scope_snapshot_json, '$.executionLimit'), 5) = ?`;
     const scopeValues = [storeId, reference.scope.kind, reference.scope.categoryId ?? "", reference.scope.selectionSemantics, reference.scope.executionLimit] as const;
     const history = this.database
       .prepare(
