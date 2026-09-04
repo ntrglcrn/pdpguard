@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect, unstable_rethrow } from "next/navigation";
+import { cookies } from "next/headers";
 
 import { AuditBusyError } from "@/lib/audit-execution";
 import {
@@ -14,6 +15,16 @@ import {
 import { CatalogDiscoveryBusyError } from "@/lib/catalog-discovery";
 import { UnsafeUrlError } from "@/lib/url-safety";
 import { EmptyStoreCatalogError } from "@/lib/workspace-service";
+import { getPrincipal, getWorkspaceService } from "@/lib/app-service";
+import { authProviderConfigured, signOut } from "../../auth";
+import { SESSION_COOKIE_NAME } from "@/lib/workspace-service";
+
+export async function logoutAction() {
+  getWorkspaceService().revokeSession(await getPrincipal("/login"));
+  if (authProviderConfigured()) await signOut({ redirectTo: "/" });
+  (await cookies()).delete(SESSION_COOKIE_NAME);
+  redirect("/");
+}
 
 export interface FormActionState {
   error?: string;

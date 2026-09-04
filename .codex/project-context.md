@@ -15,7 +15,7 @@ session/bootstrap; CI and benchmark foundation.
 **Catalog boundary:** discovery is Store-scoped and bounded; preserve exact URL
 deduplication, same-origin/SSRF checks, and inactive-on-missing semantics.
 
-**Not done:** scheduled monitoring, and hosted production auth/database/storage/execution.
+**Not done:** scheduled monitoring, and hosted production database/storage/execution. Customer access uses Auth.js with an external OIDC provider; workspace membership remains the tenant authority. Local bootstrap is explicit development/test-only (`PDP_GUARD_DEV_BOOTSTRAP=1`) and unavailable in production.
 
 **Workflow:** Store → Catalog Discovery → PDP Inventory → Store Audit → Issues
 → Monitoring. Store Audit scopes are category, uncategorized, or all active

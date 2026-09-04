@@ -26,13 +26,19 @@ export function getWorkspaceService() {
 }
 
 export async function getPrincipal(nextPath = "/stores") {
+  const principal = await getExistingPrincipal();
+  if (principal) return principal;
+  redirect(`/login?next=${encodeURIComponent(nextPath)}`);
+}
+
+export async function getExistingPrincipal() {
   const service = getWorkspaceService();
   const token = (await cookies()).get(SESSION_COOKIE_NAME)?.value;
-  if (!token) redirect(bootstrapUrl(nextPath));
+  if (!token) return undefined;
   try {
     return service.authenticateSession(token);
   } catch (error) {
-    if (error instanceof AuthorizationError) redirect(bootstrapUrl(nextPath));
+    if (error instanceof AuthorizationError) return undefined;
     throw error;
   }
 }
@@ -41,7 +47,7 @@ export async function getAppContext(nextPath = "/stores") {
   const service = getWorkspaceService();
   const principal = await getPrincipal(nextPath);
   const workspace = service.listWorkspaces(principal)[0];
-  if (!workspace) redirect(bootstrapUrl(nextPath));
+  if (!workspace) redirect("/account/access");
   return { workspace };
 }
 
@@ -49,7 +55,7 @@ export async function listStoresForApp() {
   const service = getWorkspaceService();
   const principal = await getPrincipal("/stores");
   const workspace = service.listWorkspaces(principal)[0];
-  if (!workspace) redirect(bootstrapUrl("/stores"));
+  if (!workspace) redirect("/account/access");
   return { workspace, stores: service.listStores(principal, workspace.id) };
 }
 
@@ -126,7 +132,7 @@ export async function createStoreForApp(input: { name?: string; url: string }) {
   const service = getWorkspaceService();
   const principal = await getPrincipal("/stores/new");
   const workspace = service.listWorkspaces(principal)[0];
-  if (!workspace) redirect(bootstrapUrl("/stores/new"));
+  if (!workspace) redirect("/account/access");
   return service.createStore(principal, workspace.id, input);
 }
 
@@ -172,8 +178,4 @@ export async function discoverCatalogForApp(storeId: string) {
 
 export function authenticateAppRequest(request: Request): AuthenticatedUser {
   return getWorkspaceService().authenticateRequest(request);
-}
-
-function bootstrapUrl(nextPath: string) {
-  return `/api/bootstrap?next=${encodeURIComponent(nextPath)}`;
 }

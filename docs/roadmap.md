@@ -145,10 +145,12 @@ trustworthy store quality change without hiding partial coverage.
 **Dependency/gate:** Inventory for refresh; Issue aggregation plus the stored
 rule-set/version and selected scope for comparison.
 
-### 5. Hosted Foundation for customer access
+### 5. Customer Access Foundation v1
 
-**Goal:** meet the Private Pilot release gate before customers directly use a
-hosted product.
+**Done:** public landing, external OIDC integration boundary, protected app
+routes, controlled no-workspace access, account/logout, and an explicit
+development-only bootstrap are implemented. This is not the hosted release
+gate.
 
 **Scope:** external production identity/authentication, durable tenant data and
 private artifacts, isolated browser workers with connection-time egress
@@ -157,8 +159,8 @@ sanitized operational errors.
 
 **Out of scope:** enterprise SSO, multi-region, and custom tenant policy.
 
-**Dependency/gate:** required for Private Pilot Ready and for scheduled work;
-not required to validate the preceding local product milestones.
+**Next gate:** Hosted Runtime Foundation remains required for Private Pilot Ready
+and scheduled work.
 
 ### 6. Scheduled Monitoring
 
@@ -180,8 +182,8 @@ Audit.
 
 ## Current focus
 
-**Hosted Foundation for customer access:** establish the production controls
-required before scheduled work or customer access.
+**Hosted Runtime Foundation:** establish durable tenant data, protected artifact
+storage, isolated browser execution, and deployment/operations controls.
 
 ## Release gates
 

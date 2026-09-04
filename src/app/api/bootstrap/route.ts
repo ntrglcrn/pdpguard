@@ -6,6 +6,8 @@ import { AuthorizationError } from "@/lib/workspace-service";
 export const runtime = "nodejs";
 
 export async function GET(request: Request) {
+  if (!developmentBootstrapAllowed())
+    return new Response("Not found", { status: 404 });
   const requestUrl = new URL(request.url);
   if (!isLoopback(requestUrl.hostname))
     return new Response("Not found", { status: 404 });
@@ -17,11 +19,9 @@ export async function GET(request: Request) {
     principal = authenticateAppRequest(request);
   } catch (error) {
     if (!(error instanceof AuthorizationError)) throw error;
-    const session = service.issueSession(
-      "local-user",
-      undefined,
-      { secureCookie: false },
-    );
+    const session = service.issueSession("local-user", undefined, {
+      secureCookie: false,
+    });
     principal = service.authenticateSession(session.token);
     sessionCookie = session.cookie;
   }
@@ -49,5 +49,12 @@ function safeDestination(requestUrl: URL) {
 function isLoopback(hostname: string) {
   return (
     hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]"
+  );
+}
+
+function developmentBootstrapAllowed() {
+  return (
+    process.env.NODE_ENV !== "production" &&
+    process.env.PDP_GUARD_DEV_BOOTSTRAP === "1"
   );
 }

@@ -1,9 +1,10 @@
-import { ShieldCheck } from "lucide-react";
+import { LogOut, ShieldCheck, UserRound } from "lucide-react";
 import Link from "next/link";
 import type { ReactNode } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { getAppContext } from "@/lib/app-service";
+import { logoutAction } from "@/app/actions";
 
 export default async function AppLayout({ children }: { children: ReactNode }) {
   const { workspace } = await getAppContext();
@@ -40,6 +41,21 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
           <Badge variant="outline" className="ml-auto max-w-48 truncate">
             {workspace.name}
           </Badge>
+          <Link
+            href="/account"
+            className="rounded-lg p-2 text-muted-foreground hover:bg-interactive hover:text-foreground"
+            aria-label="Account"
+          >
+            <UserRound className="size-4" />
+          </Link>
+          <form action={logoutAction}>
+            <button
+              className="rounded-lg p-2 text-muted-foreground hover:bg-interactive hover:text-foreground"
+              aria-label="Log out"
+            >
+              <LogOut className="size-4" />
+            </button>
+          </form>
         </div>
       </header>
       <main

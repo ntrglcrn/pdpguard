@@ -180,6 +180,10 @@ export class WorkspaceService {
       .map(workspaceFromRow);
   }
 
+  getWorkspaceMembership(principal: AuthenticatedUser, workspaceId: string) {
+    return this.requireMember(principal, workspaceId);
+  }
+
   addMember(
     principal: AuthenticatedUser,
     workspaceId: string,
