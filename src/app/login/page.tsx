@@ -2,10 +2,10 @@ import Link from "next/link";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
-import { auth, authProviderConfigured } from "../../../auth";
 import { Button } from "@/components/ui/button";
 import { getExistingPrincipal } from "@/lib/app-service";
 import { developmentBootstrapAvailable } from "@/lib/development-bootstrap";
+import { authProviderConfigured, configuredAuthSession } from "@/lib/external-auth";
 import { safeReturnPath, trustedApplicationOrigin } from "@/lib/return-path";
 
 export default async function LoginPage({
@@ -16,9 +16,9 @@ export default async function LoginPage({
   const params = await searchParams;
   const next = safeReturnPath(params.next, trustedApplicationOrigin());
   if (await getExistingPrincipal()) redirect(next);
-  const session = await auth();
-  if (session?.user) redirect(`/api/session?next=${encodeURIComponent(next)}`);
   const enabled = authProviderConfigured();
+  const session = enabled ? await configuredAuthSession() : undefined;
+  if (session?.user) redirect(`/api/session?next=${encodeURIComponent(next)}`);
   const callbackUrl = `/api/session?next=${encodeURIComponent(next)}`;
   const host = (await headers()).get("host");
   const localBootstrapUrl = host ? safeLocalBootstrapUrl(host, next) : undefined;

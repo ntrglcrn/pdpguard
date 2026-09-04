@@ -1,18 +1,12 @@
 import NextAuth from "next-auth";
 import Auth0 from "next-auth/providers/auth0";
 
-const configured = Boolean(
-  process.env.AUTH0_CLIENT_ID &&
-  process.env.AUTH0_CLIENT_SECRET &&
-  process.env.AUTH0_ISSUER &&
-  process.env.AUTH_SECRET &&
-  process.env.AUTH_URL,
-);
+import { authProviderConfigured } from "@/lib/external-auth";
 
-export const authProviderConfigured = () => configured;
+export { authProviderConfigured };
 
 export const { handlers, auth, signOut } = NextAuth({
-  providers: configured
+  providers: authProviderConfigured()
     ? [
         Auth0({
           clientId: process.env.AUTH0_CLIENT_ID,
