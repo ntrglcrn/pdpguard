@@ -58,11 +58,18 @@ describe("isPublicIpAddress", () => {
     "203.0.113.3",
     "::1",
     "::ffff:127.0.0.1",
+    "::ffff:7f00:1",
+    "::ffff:c0a8:101",
+    "64:ff9b::7f00:1",
     "fc00::1",
     "fe80::1",
     "2001:db8::1",
   ])("blocks local/private/reserved address %s", (address) => {
     expect(isPublicIpAddress(address)).toBe(false);
+  });
+
+  it("rejects URL-normalized IPv4-mapped private IPv6", async () => {
+    await expect(validatePublicUrl("http://[::ffff:192.168.1.1]/")).rejects.toThrow("non-public");
   });
 
   it.each(["8.8.8.8", "1.1.1.1", "2606:4700:4700::1111"])(

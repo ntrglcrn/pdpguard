@@ -64,6 +64,13 @@ interface ReadinessSnapshot {
   textLength: number;
 }
 
+function beforeDeadline<T>(operation: Promise<T>, timeoutMs: number) {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new AuditTimeoutError()), timeoutMs);
+    operation.then(resolve, reject).finally(() => clearTimeout(timer));
+  });
+}
+
 async function waitForAuditReadiness(
   page: AuditRuleContext["page"],
   options: ReadinessOptions = {},
@@ -218,7 +225,6 @@ export class PlaywrightAuditRunner implements AuditRunner {
 
   async run(inputUrl: string): Promise<AuditResult> {
     const startedAt = new Date();
-    const auditedUrl = (await validatePublicUrl(inputUrl, this.resolver)).href;
     let browser: Browser | null = null;
     let timedOut = false;
     const timeout = setTimeout(() => {
@@ -227,6 +233,9 @@ export class PlaywrightAuditRunner implements AuditRunner {
     }, AUDIT_TIMEOUT_MS);
 
     try {
+      const auditedUrl = (
+        await beforeDeadline(validatePublicUrl(inputUrl, this.resolver), AUDIT_TIMEOUT_MS)
+      ).href;
       browser = await chromium.launch();
       const mobile = { ...devices["iPhone 13"], userAgent: undefined };
       const context = await browser.newContext({
@@ -243,7 +252,6 @@ export class PlaywrightAuditRunner implements AuditRunner {
       let blockedRequestCount = 0;
       let observedRedirectCount = 0;
       let fatalSafetyError: UnsafeUrlError | null = null;
-      const safeHostCache = new Set<string>();
 
       await context.route("**/*", async (route) => {
         const request = route.request();
@@ -264,12 +272,7 @@ export class PlaywrightAuditRunner implements AuditRunner {
             );
           }
 
-          const requestUrl = new URL(request.url());
-          const cacheKey = `${requestUrl.protocol}//${requestUrl.hostname}:${requestUrl.port}`;
-          if (isMainNavigation || !safeHostCache.has(cacheKey)) {
-            await validatePublicUrl(request.url(), this.resolver);
-            if (!isMainNavigation) safeHostCache.add(cacheKey);
-          }
+          await validatePublicUrl(request.url(), this.resolver);
           await route.continue();
         } catch (error) {
           blockedRequestCount += 1;

@@ -38,6 +38,7 @@ for (const [network, prefix] of [
 for (const [network, prefix] of [
   ["::", 128],
   ["::1", 128],
+  ["64:ff9b::", 96],
   ["64:ff9b:1::", 48],
   ["100::", 64],
   ["2001::", 23],
@@ -60,11 +61,22 @@ function normalizeHostname(hostname: string): string {
 }
 
 export function isPublicIpAddress(address: string): boolean {
-  const mappedIpv4 = address.match(/^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i)?.[1];
+  const mappedIpv4 = ipv4MappedAddress(address);
   if (mappedIpv4) return isPublicIpAddress(mappedIpv4);
   const family = isIP(address);
   if (family === 0) return false;
   return !blockedAddresses.check(address, family === 4 ? "ipv4" : "ipv6");
+}
+
+function ipv4MappedAddress(address: string): string | null {
+  const dotted = address.match(/^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i)?.[1];
+  if (dotted) return dotted;
+  // WHATWG URL canonicalizes [::ffff:127.0.0.1] to [::ffff:7f00:1].
+  const parts = address.match(/^(?:0:){0,5}ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i);
+  if (!parts) return null;
+  const high = Number.parseInt(parts[1], 16);
+  const low = Number.parseInt(parts[2], 16);
+  return [high >>> 8, high & 255, low >>> 8, low & 255].join(".");
 }
 
 export async function validatePublicUrl(

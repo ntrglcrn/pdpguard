@@ -16,10 +16,15 @@ import {
   SESSION_COOKIE_NAME,
   WorkspaceService,
 } from "@/lib/workspace-service";
+import { hostedRuntimeConfig } from "@/lib/hosted-runtime-config";
 
 let service: WorkspaceService | undefined;
 
 export function getWorkspaceService() {
+  // Validate before constructing the local adapter. A hosted adapter replaces
+  // this local service; production must never open .runtime/pdpguard.sqlite.
+  if (hostedRuntimeConfig())
+    throw new Error("The Postgres WorkspaceService adapter has not been configured.");
   return (service ??= new WorkspaceService(
     path.join(process.cwd(), ".runtime", "pdpguard.sqlite"),
   ));
