@@ -64,7 +64,7 @@ export async function createMonitoringCheckAction(
   try {
     const run = await executeMonitoringCheckForApp(storeId, referenceRunId);
     revalidatePath(`/stores/${storeId}/monitoring`);
-    redirect(`/stores/${storeId}/monitoring?run=${encodeURIComponent(run.id)}`);
+    redirect(`/stores/${storeId}/monitoring?run=${encodeURIComponent(run.id)}&completedRun=${encodeURIComponent(run.id)}`);
   } catch (error) {
     unstable_rethrow(error);
     if (error instanceof AuditBusyError || error instanceof EmptyStoreCatalogError)
