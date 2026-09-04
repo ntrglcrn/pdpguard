@@ -1,16 +1,15 @@
 import { NextResponse } from "next/server";
 
 import { authenticateAppRequest, getWorkspaceService } from "@/lib/app-service";
+import { developmentBootstrapAvailable } from "@/lib/development-bootstrap";
 import { AuthorizationError } from "@/lib/workspace-service";
 import { safeReturnPath, trustedApplicationOrigin } from "@/lib/return-path";
 
 export const runtime = "nodejs";
 
 export async function GET(request: Request) {
-  if (!developmentBootstrapAllowed())
-    return new Response("Not found", { status: 404 });
   const requestUrl = new URL(request.url);
-  if (!isLoopback(requestUrl.hostname))
+  if (!developmentBootstrapAvailable(requestUrl))
     return new Response("Not found", { status: 404 });
 
   const service = getWorkspaceService();
@@ -40,17 +39,4 @@ export async function GET(request: Request) {
   const response = NextResponse.redirect(destination);
   if (sessionCookie) response.headers.set("Set-Cookie", sessionCookie);
   return response;
-}
-
-function isLoopback(hostname: string) {
-  return (
-    hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]"
-  );
-}
-
-function developmentBootstrapAllowed() {
-  return (
-    process.env.NODE_ENV !== "production" &&
-    process.env.PDP_GUARD_DEV_BOOTSTRAP === "1"
-  );
 }

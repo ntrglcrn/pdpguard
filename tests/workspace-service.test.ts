@@ -98,6 +98,23 @@ describe("WorkspaceService", () => {
     value.close();
   });
 
+  it("issues a new local session after logout revokes the old one", () => {
+    const { value } = service();
+    const first = value.issueSession("local-user", undefined, {
+      secureCookie: false,
+    });
+    value.revokeSession(value.authenticateSession(first.token));
+    expect(() => value.authenticateSession(first.token)).toThrow(AuthorizationError);
+
+    const second = value.issueSession("local-user", undefined, {
+      secureCookie: false,
+    });
+    expect(value.authenticateSession(second.token)).toMatchObject({
+      userId: "local-user",
+    });
+    value.close();
+  });
+
   it("persists authenticated ownership, completed runs and protected artifacts", async () => {
     const { databasePath, value } = service();
     const ownerSession = value.issueSession("owner");

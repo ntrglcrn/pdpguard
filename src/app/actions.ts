@@ -21,9 +21,9 @@ import { SESSION_COOKIE_NAME } from "@/lib/workspace-service";
 
 export async function logoutAction() {
   getWorkspaceService().revokeSession(await getPrincipal("/login"));
-  if (authProviderConfigured()) await signOut({ redirectTo: "/" });
+  if (authProviderConfigured()) await signOut({ redirectTo: "/login" });
   (await cookies()).delete(SESSION_COOKIE_NAME);
-  redirect("/");
+  redirect("/login");
 }
 
 export interface FormActionState {

@@ -1,9 +1,11 @@
 import Link from "next/link";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { auth, authProviderConfigured } from "../../../auth";
 import { Button } from "@/components/ui/button";
 import { getExistingPrincipal } from "@/lib/app-service";
+import { developmentBootstrapAvailable } from "@/lib/development-bootstrap";
 import { safeReturnPath, trustedApplicationOrigin } from "@/lib/return-path";
 
 export default async function LoginPage({
@@ -18,6 +20,8 @@ export default async function LoginPage({
   if (session?.user) redirect(`/api/session?next=${encodeURIComponent(next)}`);
   const enabled = authProviderConfigured();
   const callbackUrl = `/api/session?next=${encodeURIComponent(next)}`;
+  const host = (await headers()).get("host");
+  const localBootstrapUrl = host ? safeLocalBootstrapUrl(host, next) : undefined;
   return (
     <main className="mx-auto flex min-h-screen max-w-lg items-center px-4">
       <section className="w-full rounded-xl border border-border bg-card p-8 shadow-sm">
@@ -31,13 +35,13 @@ export default async function LoginPage({
             Sign-in could not be completed. Try again.
           </p>
         ) : null}
-        <div className="mt-7">
+        <div className="mt-7 space-y-3">
           {enabled ? (
             <Button asChild>
               <Link
                 href={`/api/auth/signin/auth0?callbackUrl=${encodeURIComponent(callbackUrl)}`}
               >
-                Continue to sign in
+                Continue with Auth0
               </Link>
             </Button>
           ) : (
@@ -45,6 +49,16 @@ export default async function LoginPage({
               Sign-in is not configured for this environment.
             </p>
           )}
+          {localBootstrapUrl ? (
+            <div>
+              <Button asChild variant="outline">
+                <Link href={localBootstrapUrl}>Enter local workspace</Link>
+              </Button>
+              <p className="mt-2 text-xs text-muted-foreground">
+                Development-only local access
+              </p>
+            </div>
+          ) : null}
         </div>
         <Link
           href="/"
@@ -55,4 +69,14 @@ export default async function LoginPage({
       </section>
     </main>
   );
+}
+
+function safeLocalBootstrapUrl(host: string, next: string) {
+  try {
+    const requestUrl = new URL(`http://${host}`);
+    if (!developmentBootstrapAvailable(requestUrl)) return undefined;
+    return `/api/bootstrap?next=${encodeURIComponent(next)}`;
+  } catch {
+    return undefined;
+  }
 }
