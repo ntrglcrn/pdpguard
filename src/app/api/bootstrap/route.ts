@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { authenticateAppRequest, getWorkspaceService } from "@/lib/app-service";
 import { AuthorizationError } from "@/lib/workspace-service";
+import { safeReturnPath, trustedApplicationOrigin } from "@/lib/return-path";
 
 export const runtime = "nodejs";
 
@@ -29,21 +30,16 @@ export async function GET(request: Request) {
   if (service.listWorkspaces(principal).length === 0)
     service.createWorkspace(principal, "Local workspace");
 
-  const destination = safeDestination(requestUrl);
+  const destination = new URL(
+    safeReturnPath(
+      requestUrl.searchParams.get("next"),
+      trustedApplicationOrigin(requestUrl),
+    ),
+    requestUrl,
+  );
   const response = NextResponse.redirect(destination);
   if (sessionCookie) response.headers.set("Set-Cookie", sessionCookie);
   return response;
-}
-
-function safeDestination(requestUrl: URL) {
-  try {
-    const destination = new URL(
-      requestUrl.searchParams.get("next") || "/stores",
-      requestUrl,
-    );
-    if (destination.origin === requestUrl.origin) return destination;
-  } catch {}
-  return new URL("/stores", requestUrl);
 }
 
 function isLoopback(hostname: string) {

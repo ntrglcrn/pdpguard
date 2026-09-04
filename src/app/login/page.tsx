@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { auth, authProviderConfigured } from "../../../auth";
 import { Button } from "@/components/ui/button";
 import { getExistingPrincipal } from "@/lib/app-service";
+import { safeReturnPath, trustedApplicationOrigin } from "@/lib/return-path";
 
 export default async function LoginPage({
   searchParams,
@@ -11,7 +12,7 @@ export default async function LoginPage({
   searchParams: Promise<{ next?: string; error?: string }>;
 }) {
   const params = await searchParams;
-  const next = safeNext(params.next);
+  const next = safeReturnPath(params.next, trustedApplicationOrigin());
   if (await getExistingPrincipal()) redirect(next);
   const session = await auth();
   if (session?.user) redirect(`/api/session?next=${encodeURIComponent(next)}`);
@@ -54,8 +55,4 @@ export default async function LoginPage({
       </section>
     </main>
   );
-}
-
-function safeNext(value?: string) {
-  return value?.startsWith("/") && !value.startsWith("//") ? value : "/stores";
 }

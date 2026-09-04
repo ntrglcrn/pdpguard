@@ -5,7 +5,8 @@ const configured = Boolean(
   process.env.AUTH0_CLIENT_ID &&
   process.env.AUTH0_CLIENT_SECRET &&
   process.env.AUTH0_ISSUER &&
-  process.env.AUTH_SECRET,
+  process.env.AUTH_SECRET &&
+  process.env.AUTH_URL,
 );
 
 export const authProviderConfigured = () => configured;

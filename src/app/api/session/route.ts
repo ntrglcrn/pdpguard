@@ -2,26 +2,27 @@ import { NextResponse } from "next/server";
 
 import { auth } from "../../../../auth";
 import { getWorkspaceService } from "@/lib/app-service";
+import { safeReturnPath, trustedApplicationOrigin } from "@/lib/return-path";
 
 export const runtime = "nodejs";
 
 export async function GET(request: Request) {
   const session = await auth();
-  const destination = safeDestination(new URL(request.url));
+  const requestUrl = new URL(request.url);
+  const trustedOrigin = trustedApplicationOrigin(requestUrl);
+  if (!trustedOrigin)
+    return new Response("Sign-in is unavailable.", { status: 503 });
+  const destination = safeReturnPath(
+    requestUrl.searchParams.get("next"),
+    trustedOrigin,
+  );
   if (!session?.user?.id)
-    return NextResponse.redirect(new URL(`/login?error=signin`, request.url));
+    return NextResponse.redirect(new URL(`/login?error=signin`, trustedOrigin));
 
   const local = getWorkspaceService().issueSession(session.user.id, undefined, {
     secureCookie: process.env.NODE_ENV === "production",
   });
-  const response = NextResponse.redirect(destination);
+  const response = NextResponse.redirect(new URL(destination, trustedOrigin));
   response.headers.set("Set-Cookie", local.cookie);
   return response;
-}
-
-function safeDestination(requestUrl: URL) {
-  const next = requestUrl.searchParams.get("next") || "/stores";
-  return next.startsWith("/") && !next.startsWith("//")
-    ? new URL(next, requestUrl)
-    : new URL("/stores", requestUrl);
 }
