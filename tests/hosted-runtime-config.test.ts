@@ -19,6 +19,10 @@ describe("hostedRuntimeConfig", () => {
     expect(() => hostedRuntimeConfig({ NODE_ENV: "production" })).toThrow("DATABASE_URL");
   });
 
+  it("does not require deployment secrets during the Next build phase", () => {
+    expect(hostedRuntimeConfig({ NODE_ENV: "production", NEXT_PHASE: "phase-production-build" })).toBeNull();
+  });
+
   it("requires web authentication configuration", () => {
     const missing = { ...production };
     delete missing.AUTH_SECRET;

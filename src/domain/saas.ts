@@ -6,6 +6,7 @@ export type AuditRunStatus =
 export type CatalogDiscoveryStatus =
   "not_started" | "running" | "succeeded" | "failed";
 export type StoreAuditRunStatus =
+  | "queued"
   | "running"
   | "completed"
   | "completed_with_failures"

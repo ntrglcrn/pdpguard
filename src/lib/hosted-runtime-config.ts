@@ -21,6 +21,7 @@ export function hostedRuntimeConfig(
   env = process.env,
   role: "web" | "worker" = "web",
 ): HostedRuntimeConfig | null {
+  if (env.NEXT_PHASE === "phase-production-build") return null;
   if (runtimeMode(env) !== "production") return null;
   const required = ["DATABASE_URL", "PDP_GUARD_ARTIFACT_BUCKET", "AWS_REGION"] as const;
   const missing: string[] = required.filter((key) => !env[key]);
