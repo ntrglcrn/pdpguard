@@ -650,9 +650,10 @@ export class PostgresWorkspaceService {
     if (lastConfirmed) {
       const comparable = await this.database.query(
         `SELECT * FROM store_audit_runs WHERE store_id = $1 AND status = 'completed'
-         AND selection_signature = $2 AND ruleset_version = $3 AND started_at <= $4
+         AND selection_signature = $2 AND ruleset_version = $3
+         AND started_at <= (SELECT started_at FROM store_audit_runs WHERE id = $4)
          ORDER BY started_at DESC, id DESC LIMIT 20`,
-        [storeId, lastConfirmed.selectionSignature, lastConfirmed.rulesetVersion, lastConfirmed.startedAt],
+        [storeId, lastConfirmed.selectionSignature, lastConfirmed.rulesetVersion, lastConfirmed.id],
       );
       comparableHistory = comparable.rows.map(storeAuditRunFromRow).reverse();
     }
@@ -1006,9 +1007,9 @@ export class PostgresWorkspaceService {
       `SELECT * FROM store_audit_runs
        WHERE store_id = $1 AND id <> $2 AND status = 'completed'
          AND selection_signature = $3 AND ruleset_version = $4
-         AND started_at <= $5
+         AND started_at <= (SELECT started_at FROM store_audit_runs WHERE id = $5)
        ORDER BY started_at DESC, id DESC LIMIT 1`,
-      [run.storeId, run.id, run.selectionSignature, run.rulesetVersion, run.startedAt],
+      [run.storeId, run.id, run.selectionSignature, run.rulesetVersion, run.id],
     );
     if (!previousResult.rows[0]) return [...current.values()];
     const previous = storeAuditRunFromRow(previousResult.rows[0]);
@@ -1028,9 +1029,10 @@ export class PostgresWorkspaceService {
          JOIN findings f ON f.audit_run_id = i.audit_run_id
          WHERE sr.store_id = $1 AND sr.status = 'completed'
            AND sr.selection_signature = $2 AND sr.ruleset_version = $3
-           AND sr.started_at < $4 AND f.rule_id = $5
+           AND sr.started_at < (SELECT started_at FROM store_audit_runs WHERE id = $4)
+           AND f.rule_id = $5
            AND f.payload_json->>'status' = 'failed' LIMIT 1`,
-        [run.storeId, run.selectionSignature, run.rulesetVersion, previous.startedAt, issue.ruleId],
+        [run.storeId, run.selectionSignature, run.rulesetVersion, previous.id, issue.ruleId],
       );
       issue.lifecycle = appearedBefore.rows[0] ? "regressed" : "new";
     }
@@ -1125,7 +1127,7 @@ function validateArtifactMetadata(artifact: HostedArtifactMetadata) {
 }
 
 function iso(value: unknown) {
-  return new Date(String(value)).toISOString();
+  return (value instanceof Date ? value : new Date(String(value))).toISOString();
 }
 
 function workspaceFromRow(row: QueryResultRow): Workspace {
@@ -1180,7 +1182,9 @@ function scopeFromRow(row: QueryResultRow): AuditScopeSnapshot {
     categoryId: scope.categoryId ?? null,
     categoryName: scope.categoryName ?? null,
     matchingPdpCount: scope.matchingPdpCount ?? Number(row.selected_pdp_count),
-    executionLimit: scope.executionLimit ?? STORE_AUDIT_MAX_PDPS,
+    executionLimit: /^[0-9]{1,9}$/.test(String(scope.executionLimit))
+      ? Number(scope.executionLimit)
+      : STORE_AUDIT_MAX_PDPS,
     selectedCatalogItemIds: scope.selectedCatalogItemIds ?? [],
     selectionSemantics: scope.selectionSemantics ?? "active_catalog_url_order_v1",
     catalogComplete: scope.catalogComplete ?? true,

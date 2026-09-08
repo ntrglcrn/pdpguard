@@ -83,7 +83,7 @@ describe.skipIf(!databaseUrl)("PostgresWorkspaceService", () => {
   it("rolls back workspace creation when the membership write fails", async () => {
     const session = await service.issueSession("rollback-owner");
     const principal = await service.authenticateSession(session.token);
-    await pool.query("ALTER TABLE workspace_members ADD CONSTRAINT reject_owner CHECK (role <> 'owner')");
+    await pool.query("ALTER TABLE workspace_members ADD CONSTRAINT reject_owner CHECK (role <> 'owner') NOT VALID");
     await expect(service.createWorkspace(principal, "Never committed")).rejects.toThrow();
     expect((await pool.query("SELECT 1 FROM workspaces WHERE name = 'Never committed'")).rowCount).toBe(0);
     await pool.query("ALTER TABLE workspace_members DROP CONSTRAINT reject_owner");
