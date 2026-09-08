@@ -130,7 +130,6 @@ export class PlaywrightCatalogDiscoveryRunner implements CatalogDiscoveryRunner 
       const page = await context.newPage();
       page.setDefaultTimeout(5_000);
       page.setDefaultNavigationTimeout(20_000);
-      const safeHostCache = new Set<string>();
       let fatalSafetyError: UnsafeUrlError | null = null;
 
       await context.route("**/*", async (route) => {
@@ -152,13 +151,7 @@ export class PlaywrightCatalogDiscoveryRunner implements CatalogDiscoveryRunner 
               `The page exceeded ${MAX_REDIRECTS} redirects.`,
             );
 
-          const cacheKey = requestUrl.origin;
-          if (request.isNavigationRequest()) {
-            await validatePublicUrl(request.url(), this.resolver);
-          } else if (!safeHostCache.has(cacheKey)) {
-            await validatePublicUrl(request.url(), this.resolver);
-            safeHostCache.add(cacheKey);
-          }
+          await validatePublicUrl(request.url(), this.resolver);
           await route.continue();
         } catch (error) {
           if (request.isNavigationRequest())
@@ -195,19 +188,21 @@ export class PlaywrightCatalogDiscoveryRunner implements CatalogDiscoveryRunner 
         .evaluateAll(
           (anchors, limit) =>
             anchors
-              .slice(0, limit)
+              .slice(0, limit + 1)
               .map((anchor) => ({
                 href: (anchor as HTMLAnchorElement).href,
                 text: anchor.textContent?.trim() ?? "",
               })),
           MAX_INSPECTED_LINKS,
         );
-      const links = anchors.map((anchor) => anchor.href);
+      const rootTruncated = anchors.length > MAX_INSPECTED_LINKS;
+      const boundedAnchors = anchors.slice(0, MAX_INSPECTED_LINKS);
+      const links = boundedAnchors.map((anchor) => anchor.href);
       const productUrls = catalogProductUrls(links, origin);
-      const categoryCandidates = categoryLinks(anchors, origin);
+      const categoryCandidates = categoryLinks(boundedAnchors, origin);
       const categories = categoryCandidates.slice(0, MAX_CATEGORY_CANDIDATES);
       const mappings: CatalogDiscoveryResult["mappings"] = [];
-      let truncated = categoryCandidates.length > MAX_CATEGORY_PAGES;
+      let truncated = rootTruncated || categoryCandidates.length > MAX_CATEGORY_PAGES;
       for (const category of categories.slice(0, MAX_CATEGORY_PAGES)) {
         const safeCategory = await validatePublicUrl(category.url, this.resolver);
         if (safeCategory.origin !== origin) continue;
@@ -218,10 +213,12 @@ export class PlaywrightCatalogDiscoveryRunner implements CatalogDiscoveryRunner 
             truncated = true;
             continue;
           }
-          const categoryProductUrls = catalogProductUrls(
-            await categoryPage.locator("a[href]").evaluateAll((anchors, limit) => anchors.slice(0, limit).map((anchor) => (anchor as HTMLAnchorElement).href), MAX_INSPECTED_LINKS),
-            origin,
+          const categoryLinks = await categoryPage.locator("a[href]").evaluateAll(
+            (anchors, limit) => anchors.slice(0, limit + 1).map((anchor) => (anchor as HTMLAnchorElement).href),
+            MAX_INSPECTED_LINKS,
           );
+          if (categoryLinks.length > MAX_INSPECTED_LINKS) truncated = true;
+          const categoryProductUrls = catalogProductUrls(categoryLinks.slice(0, MAX_INSPECTED_LINKS), origin);
           for (const productUrl of categoryProductUrls) mappings.push({ productUrl, categoryUrl: safeCategory.href });
           productUrls.push(...categoryProductUrls);
         } catch {

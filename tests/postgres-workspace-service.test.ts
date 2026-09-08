@@ -207,6 +207,10 @@ describe.skipIf(!databaseUrl)("PostgresWorkspaceService", () => {
     expect(created.run).toMatchObject({ status: "queued", selectedPdpCount: 1, scope: { selectedCatalogItemIds: [itemId], catalogComplete: true } });
     expect((await pool.query("SELECT job_type, store_audit_run_id FROM audit_jobs WHERE id = $1", [created.jobId])).rows[0]).toEqual({ job_type: "store_audit", store_audit_run_id: created.run.id });
     await expect(service.listStoreAuditRuns(principal, store.id)).resolves.toMatchObject([{ id: created.run.id, status: "queued" }]);
+
+    await pool.query("UPDATE catalog_discoveries SET status = 'failed', failure_category = 'infrastructure' WHERE store_id = $1", [store.id]);
+    const afterFailure = await service.createStoreAuditRun(principal, store.id);
+    expect(afterFailure.run.scope.catalogComplete).toBe(false);
   });
 
   it("ports Store Audit child lifecycle, report aggregation, and Monitoring", async () => {

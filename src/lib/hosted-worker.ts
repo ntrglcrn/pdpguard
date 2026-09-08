@@ -27,9 +27,12 @@ async function audit(url: string, objects: ArtifactStore) {
 }
 
 async function execute(job: AuditJob, jobs: PostgresAuditJobs, objects: ArtifactStore) {
-  const input = await jobs.start(job);
-  const renewal = setInterval(() => { void jobs.renew(job); }, Math.floor(WORKER_LEASE_MS / 3));
+  let renewal: ReturnType<typeof setInterval> | undefined;
   try {
+    const input = await jobs.start(job);
+    renewal = setInterval(() => {
+      void jobs.renew(job).catch(() => undefined);
+    }, Math.floor(WORKER_LEASE_MS / 3));
     if (job.jobType === "quick_audit") {
       const output = await audit(input.targetUrl!, objects);
       try { await jobs.completeQuick(job, output.result, output.artifact); } catch (error) { await objects.delete(output.artifact.storageKey).catch(() => undefined); throw error; }
@@ -44,8 +47,14 @@ async function execute(job: AuditJob, jobs: PostgresAuditJobs, objects: Artifact
     try { await jobs.completeStore(job, outcomes); } catch (error) {
       await Promise.all(outcomes.flatMap((item) => item.artifact ? [objects.delete(item.artifact.storageKey).catch(() => undefined)] : [])); throw error;
     }
-  } catch (error) { await jobs.fail(job, category(error)).catch(() => undefined); }
-  finally { clearInterval(renewal); }
+  } catch (error) {
+    const failureCategory = category(error);
+    console.error("Hosted worker execution failed", {
+      event: "hosted_job_failed", jobId: job.id, jobType: job.jobType,
+      attempt: job.attempt, failureCategory,
+    });
+    await jobs.fail(job, failureCategory).catch(() => undefined);
+  } finally { if (renewal) clearInterval(renewal); }
 }
 
 export async function runWorker() {

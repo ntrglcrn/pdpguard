@@ -568,8 +568,8 @@ export class PostgresWorkspaceService {
     );
     const selected = matching.rows.slice(0, STORE_AUDIT_MAX_PDPS);
     if (!selected.length) throw new Error("Discover active product pages before running a Store Audit.");
-    const discovery = (await this.database.query<{ partial: boolean }>("SELECT partial FROM catalog_discoveries WHERE store_id = $1", [storeId])).rows[0];
-    const scope: AuditScopeSnapshot = { kind: input.kind, categoryId, categoryName: category ? String(category.name) : null, matchingPdpCount: matching.rowCount ?? matching.rows.length, executionLimit: STORE_AUDIT_MAX_PDPS, selectedCatalogItemIds: selected.map((item) => item.id), selectionSemantics: "active_catalog_url_order_v1", catalogComplete: !discovery?.partial };
+    const discovery = (await this.database.query<{ status: string; partial: boolean }>("SELECT status, partial FROM catalog_discoveries WHERE store_id = $1", [storeId])).rows[0];
+    const scope: AuditScopeSnapshot = { kind: input.kind, categoryId, categoryName: category ? String(category.name) : null, matchingPdpCount: matching.rowCount ?? matching.rows.length, executionLimit: STORE_AUDIT_MAX_PDPS, selectedCatalogItemIds: selected.map((item) => item.id), selectionSemantics: "active_catalog_url_order_v1", catalogComplete: discovery?.status === "succeeded" && !discovery.partial };
     const startedAt = new Date().toISOString();
     const run: StoreAuditRun = { id: randomUUID(), workspaceId: store.workspaceId, storeId, status: "queued", selectionMode: "automatic_bounded_active_catalog_v1", selectionSignature: createHash("sha256").update(JSON.stringify({ scope, selected: selected.map((item) => [item.id, item.normalized_url]), ruleset: STORE_AUDIT_RULESET_VERSION })).digest("hex"), rulesetVersion: STORE_AUDIT_RULESET_VERSION, scope, selectedPdpCount: selected.length, completedPdpCount: 0, failedPdpCount: 0, startedAt, completedAt: null, summary: null };
     const items: StoreAuditRunItem[] = selected.map((item, position) => ({ id: randomUUID(), storeAuditRunId: run.id, catalogItemId: item.id, normalizedUrl: item.normalized_url, position, auditRunId: null, failureCategory: null }));

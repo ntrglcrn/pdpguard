@@ -545,8 +545,8 @@ export class WorkspaceService {
     ).all(storeId, scopeKind, scopeKind, categoryId ?? "", scopeKind) as Record<string, SQLInputValue>[];
     const selected = matching.slice(0, STORE_AUDIT_MAX_PDPS);
     if (!selected.length) throw new EmptyStoreCatalogError();
-    const catalogDiscovery = this.database.prepare("SELECT partial FROM catalog_discoveries WHERE store_id = ?").get(storeId) as { partial?: number } | undefined;
-    const scope: AuditScopeSnapshot = { kind: scopeKind, categoryId, categoryName: category ? String(category.name) : null, matchingPdpCount: matching.length, executionLimit: STORE_AUDIT_MAX_PDPS, selectedCatalogItemIds: selected.map((item) => String(item.id)), selectionSemantics: "active_catalog_url_order_v1", catalogComplete: !catalogDiscovery?.partial };
+    const catalogDiscovery = this.database.prepare("SELECT status, partial FROM catalog_discoveries WHERE store_id = ?").get(storeId) as { status?: string; partial?: number } | undefined;
+    const scope: AuditScopeSnapshot = { kind: scopeKind, categoryId, categoryName: category ? String(category.name) : null, matchingPdpCount: matching.length, executionLimit: STORE_AUDIT_MAX_PDPS, selectedCatalogItemIds: selected.map((item) => String(item.id)), selectionSemantics: "active_catalog_url_order_v1", catalogComplete: catalogDiscovery?.status === "succeeded" && !catalogDiscovery.partial };
 
     const startedAt = new Date().toISOString();
     const run: StoreAuditRun = {
