@@ -7,13 +7,15 @@ import {
   getWorkspaceService,
 } from "@/lib/app-service";
 
+export const dynamic = "force-dynamic";
+
 export default async function AccountPage() {
   const [{ workspace }, principal, session] = await Promise.all([
     getAppContext("/account"),
     getPrincipal("/account"),
     auth(),
   ]);
-  const membership = getWorkspaceService().getWorkspaceMembership(
+  const membership = await (await getWorkspaceService()).getWorkspaceMembership(
     principal,
     workspace.id,
   );

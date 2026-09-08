@@ -6,6 +6,9 @@ import { Badge } from "@/components/ui/badge";
 import { getAppContext } from "@/lib/app-service";
 import { logoutAction } from "@/app/actions";
 
+// Session and workspace data are request-bound; never pre-render them at build time.
+export const dynamic = "force-dynamic";
+
 export default async function AppLayout({ children }: { children: ReactNode }) {
   const { workspace } = await getAppContext();
 

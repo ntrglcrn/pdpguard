@@ -1,93 +1,46 @@
-import "server-only";
-
 import { randomUUID } from "node:crypto";
-import { Pool } from "pg";
+import { Pool, type PoolClient } from "pg";
+import type { AuditResult } from "@/domain/audit";
+import type { CatalogDiscoveryResult } from "@/lib/catalog-discovery";
+import type { HostedArtifactMetadata } from "@/lib/postgres-workspace-service";
+import { validatePublicUrl } from "@/lib/url-safety";
 
-export type AuditJobStatus = "queued" | "running" | "completed" | "failed";
+export const WORKER_LEASE_MS = 90_000;
+export const WORKER_MAX_ATTEMPTS = 2;
+export type AuditJobType = "quick_audit" | "store_audit" | "catalog_discovery";
+export interface AuditJob { id:string; workspaceId:string; runId:string; jobType:AuditJobType; status:"queued"|"running"|"completed"|"failed"; attempt:number; workerId:string|null; leaseExpiresAt:string|null; }
+export interface JobInput { storeId:string; storeUrl:string; targetUrl?:string; items?:Array<{id:string;normalizedUrl:string}> }
+export interface StoreOutcome { itemId:string; result?:AuditResult; artifact?:HostedArtifactMetadata; failureCategory?:"infrastructure"|"timeout"|"unsafe_url" }
+export class LeaseLostError extends Error { constructor() { super("The job lease was lost."); this.name="LeaseLostError"; } }
 
-export interface AuditJob {
-  id: string;
-  workspaceId: string;
-  runId: string;
-  jobType: "quick_audit";
-  status: AuditJobStatus;
-  attempt: number;
-  availableAt: string;
-  claimedAt: string | null;
-  leaseExpiresAt: string | null;
-  workerId: string | null;
-  completedAt: string | null;
-  failureCategory: string | null;
-}
-
+/** Worker mutations pass through this one transaction and cannot outlive a lease. */
 export class PostgresAuditJobs {
-  constructor(private readonly pool: Pool) {}
-
-  async enqueue(runId: string) {
-    const job = {
-      id: randomUUID(), runId, jobType: "quick_audit" as const, availableAt: new Date().toISOString(),
-    };
-    const result = await this.pool.query(
-      `INSERT INTO audit_jobs (id, workspace_id, audit_run_id, job_type, status, attempt, available_at)
-       SELECT $1, workspace_id, id, $2, 'queued', 0, $3 FROM audit_runs WHERE id = $4`,
-      [job.id, job.jobType, job.availableAt, job.runId],
-    );
-    if (result.rowCount !== 1) throw new Error("The audit run does not exist.");
-    return job.id;
+  constructor(private readonly pool:Pool) {}
+  async claim(workerId:string, leaseMs=WORKER_LEASE_MS):Promise<AuditJob|null> {
+    const db=await this.pool.connect(); try { await db.query("BEGIN");
+      const exhausted=await db.query(`UPDATE audit_jobs SET status='failed',completed_at=clock_timestamp(),lease_expires_at=NULL,failure_category='infrastructure' WHERE status='running' AND lease_expires_at<=clock_timestamp() AND attempt >= $1 RETURNING audit_run_id,store_audit_run_id,discovery_store_id`,[WORKER_MAX_ATTEMPTS]);
+      for(const row of exhausted.rows) {
+        if(row.audit_run_id) await db.query("UPDATE audit_runs SET status='failed',completed_at=clock_timestamp(),failure_category='infrastructure' WHERE id=$1 AND status IN ('queued','running')",[row.audit_run_id]);
+        if(row.store_audit_run_id) await db.query("UPDATE store_audit_runs SET status='failed',completed_at=clock_timestamp() WHERE id=$1 AND status IN ('queued','running')",[row.store_audit_run_id]);
+        if(row.discovery_store_id) await db.query("UPDATE catalog_discoveries SET status='failed',completed_at=clock_timestamp(),failure_category='infrastructure' WHERE store_id=$1 AND status='running'",[row.discovery_store_id]);
+      }
+      const found=await db.query(`WITH candidate AS (SELECT id FROM audit_jobs WHERE (status='queued' AND available_at<=clock_timestamp()) OR (status='running' AND lease_expires_at<=clock_timestamp() AND attempt<$1) ORDER BY available_at,created_at,id FOR UPDATE SKIP LOCKED LIMIT 1) UPDATE audit_jobs j SET status='running',attempt=j.attempt+1,claimed_at=clock_timestamp(),lease_expires_at=clock_timestamp()+($2*interval '1 millisecond'),worker_id=$3,failure_category=NULL FROM candidate WHERE j.id=candidate.id RETURNING j.*`,[WORKER_MAX_ATTEMPTS,leaseMs,workerId]);
+      await db.query("COMMIT"); return found.rows[0] ? fromRow(found.rows[0]) : null;
+    } catch(e) { await db.query("ROLLBACK"); throw e; } finally { db.release(); }
   }
-
-  /** One transaction: a valid lease can belong to only one worker. */
-  async claim(workerId: string, leaseMs: number): Promise<AuditJob | null> {
-    const client = await this.pool.connect();
-    try {
-      await client.query("BEGIN");
-      await client.query(
-        `UPDATE audit_jobs SET status = 'failed', completed_at = now(),
-           lease_expires_at = NULL, failure_category = 'infrastructure'
-         WHERE status = 'running' AND lease_expires_at <= now() AND attempt >= 2`,
-      );
-      const row = await client.query(
-        `WITH candidate AS (
-           SELECT id FROM audit_jobs
-           WHERE (status = 'queued' AND available_at <= now())
-              OR (status = 'running' AND lease_expires_at <= now() AND attempt < 2)
-           ORDER BY available_at, created_at, id
-           FOR UPDATE SKIP LOCKED LIMIT 1
-         )
-         UPDATE audit_jobs j SET status = 'running', attempt = j.attempt + 1,
-           claimed_at = now(), lease_expires_at = now() + ($1 * interval '1 millisecond'),
-           worker_id = $2, failure_category = NULL
-         FROM candidate WHERE j.id = candidate.id RETURNING j.*`,
-        [leaseMs, workerId],
-      );
-      await client.query("COMMIT");
-      return row.rows[0] ? auditJobFromRow(row.rows[0]) : null;
-    } catch (error) {
-      await client.query("ROLLBACK");
-      throw error;
-    } finally { client.release(); }
-  }
-
-  async complete(id: string, workerId: string, attempt: number) {
-    const result = await this.pool.query(
-      `UPDATE audit_jobs SET status = 'completed', completed_at = now(), lease_expires_at = NULL
-       WHERE id = $1 AND status = 'running' AND worker_id = $2 AND attempt = $3
-         AND lease_expires_at > now()`, [id, workerId, attempt],
-    );
-    return result.rowCount === 1;
-  }
-
-  async fail(id: string, workerId: string, attempt: number, failureCategory: string) {
-    const result = await this.pool.query(
-      `UPDATE audit_jobs SET status = 'failed', completed_at = now(), lease_expires_at = NULL, failure_category = $4
-       WHERE id = $1 AND status = 'running' AND worker_id = $2 AND attempt = $3
-         AND lease_expires_at > now()`, [id, workerId, attempt, failureCategory],
-    );
-    return result.rowCount === 1;
-  }
+  async renew(job:AuditJob, leaseMs=WORKER_LEASE_MS) { return (await this.pool.query("UPDATE audit_jobs SET lease_expires_at=clock_timestamp()+($1*interval '1 millisecond') WHERE id=$2 AND status='running' AND worker_id=$3 AND attempt=$4 AND lease_expires_at>clock_timestamp()",[leaseMs,job.id,job.workerId,job.attempt])).rowCount===1; }
+  async start(job:AuditJob):Promise<JobInput> { return this.fenced(job,async db=>{
+    if(job.jobType==="quick_audit") { const run=(await db.query("UPDATE audit_runs SET status='running',started_at=clock_timestamp() WHERE id=$1 AND workspace_id=$2 AND status='queued' RETURNING store_id,target_url",[job.runId,job.workspaceId])).rows[0]; const store=run&&(await db.query("SELECT url FROM stores WHERE id=$1 AND workspace_id=$2",[run.store_id,job.workspaceId])).rows[0]; if(!store) throw new LeaseLostError(); return {storeId:String(run.store_id),storeUrl:String(store.url),targetUrl:String(run.target_url)}; }
+    if(job.jobType==="store_audit") { const parent=(await db.query("UPDATE store_audit_runs SET status='running',started_at=clock_timestamp() WHERE id=$1 AND workspace_id=$2 AND status='queued' RETURNING store_id",[job.runId,job.workspaceId])).rows[0]; const store=parent&&(await db.query("SELECT url FROM stores WHERE id=$1 AND workspace_id=$2",[parent.store_id,job.workspaceId])).rows[0]; if(!store) throw new LeaseLostError(); const items=await db.query("SELECT id,normalized_url FROM store_audit_run_items WHERE store_audit_run_id=$1 ORDER BY position",[job.runId]); return {storeId:String(parent.store_id),storeUrl:String(store.url),items:items.rows.map(r=>({id:String(r.id),normalizedUrl:String(r.normalized_url)}))}; }
+    const discovery=(await db.query("UPDATE catalog_discoveries SET status='running',started_at=clock_timestamp(),completed_at=NULL,failure_category=NULL WHERE store_id=$1 AND workspace_id=$2 AND status='queued' RETURNING store_id",[job.runId,job.workspaceId])).rows[0]; const store=discovery&&(await db.query("SELECT url FROM stores WHERE id=$1 AND workspace_id=$2",[job.runId,job.workspaceId])).rows[0]; if(!store) throw new LeaseLostError(); return {storeId:job.runId,storeUrl:String(store.url)};
+  }); }
+  async completeQuick(job:AuditJob,result:AuditResult,artifact:HostedArtifactMetadata) { await this.fenced(job,async db=>{ const run=(await db.query("SELECT target_url FROM audit_runs WHERE id=$1 AND workspace_id=$2 AND status='running' FOR UPDATE",[job.runId,job.workspaceId])).rows[0]; if(!run||run.target_url!==result.auditedUrl) throw new LeaseLostError(); await persistAudit(db,job.workspaceId,job.runId,result,artifact); await this.finish(db,job); }); }
+  async completeStore(job:AuditJob,outcomes:StoreOutcome[]) { await this.fenced(job,async db=>{ const parent=(await db.query("SELECT * FROM store_audit_runs WHERE id=$1 AND workspace_id=$2 AND status='running' FOR UPDATE",[job.runId,job.workspaceId])).rows[0]; if(!parent) throw new LeaseLostError(); for(const out of outcomes) { const item=(await db.query("SELECT * FROM store_audit_run_items WHERE id=$1 AND store_audit_run_id=$2 FOR UPDATE",[out.itemId,job.runId])).rows[0]; if(!item) throw new LeaseLostError(); if(out.result&&out.artifact) { const runId=randomUUID(); await db.query("INSERT INTO audit_runs (id,workspace_id,store_id,target_url,status,created_at,started_at,completed_at) VALUES ($1,$2,$3,$4,'running',clock_timestamp(),clock_timestamp(),clock_timestamp())",[runId,job.workspaceId,parent.store_id,item.normalized_url]); await persistAudit(db,job.workspaceId,runId,out.result,out.artifact); await db.query("UPDATE store_audit_run_items SET audit_run_id=$1 WHERE id=$2",[runId,item.id]); } else await db.query("UPDATE store_audit_run_items SET failure_category=$1 WHERE id=$2",[out.failureCategory??"infrastructure",item.id]); }
+    const count=(await db.query(`SELECT count(*) FILTER (WHERE r.status='completed')::int complete,count(*) FILTER (WHERE i.failure_category IS NOT NULL OR r.status='failed')::int failed FROM store_audit_run_items i LEFT JOIN audit_runs r ON r.id=i.audit_run_id WHERE i.store_audit_run_id=$1`,[job.runId])).rows[0]; const status=Number(count.complete)===Number(parent.selected_pdp_count)?"completed":Number(count.complete)?"completed_with_failures":"failed"; await db.query("UPDATE store_audit_runs SET status=$1,completed_at=clock_timestamp(),completed_pdp_count=$2,failed_pdp_count=$3 WHERE id=$4",[status,count.complete,count.failed,job.runId]); await this.finish(db,job); }); }
+  async completeCatalog(job:AuditJob,result:CatalogDiscoveryResult) { const urls:string[]=[]; for(const candidate of [...new Set(result.productUrls)].slice(0,200)) urls.push((await validatePublicUrl(candidate)).href); await this.fenced(job,async db=>{ const active=(await db.query("SELECT 1 FROM catalog_discoveries WHERE store_id=$1 AND workspace_id=$2 AND status='running' FOR UPDATE",[job.runId,job.workspaceId])).rows[0]; if(!active) throw new LeaseLostError(); for(const url of urls) await db.query("INSERT INTO catalog_items (id,workspace_id,store_id,normalized_url,source,first_seen_at,last_seen_at,active) VALUES ($1,$2,$3,$4,'root_page_link',clock_timestamp(),clock_timestamp(),true) ON CONFLICT (store_id,normalized_url) DO UPDATE SET last_seen_at=clock_timestamp(),active=true",[randomUUID(),job.workspaceId,job.runId,url]); if(!result.truncated) await db.query("UPDATE catalog_items SET active=false WHERE store_id=$1 AND normalized_url<>ALL($2::text[])",[job.runId,urls]); await db.query("UPDATE catalog_discoveries SET status='succeeded',completed_at=clock_timestamp(),partial=$1,discovered_count=$2,failure_category=NULL WHERE store_id=$3",[result.truncated,urls.length,job.runId]); await this.finish(db,job); }); }
+  async fail(job:AuditJob,category:"infrastructure"|"timeout"|"unsafe_url") { await this.fenced(job,async db=>{ if(job.jobType==="quick_audit") await db.query("UPDATE audit_runs SET status='failed',completed_at=clock_timestamp(),failure_category=$1 WHERE id=$2 AND status IN ('queued','running')",[category,job.runId]); else if(job.jobType==="store_audit") await db.query("UPDATE store_audit_runs SET status='failed',completed_at=clock_timestamp() WHERE id=$1 AND status IN ('queued','running')",[job.runId]); else await db.query("UPDATE catalog_discoveries SET status='failed',completed_at=clock_timestamp(),failure_category=$1 WHERE store_id=$2 AND status='running'",[category,job.runId]); await db.query("UPDATE audit_jobs SET status='failed',completed_at=clock_timestamp(),lease_expires_at=NULL,failure_category=$1 WHERE id=$2",[category,job.id]); }); }
+  private async finish(db:PoolClient,job:AuditJob) { const done=await db.query("UPDATE audit_jobs SET status='completed',completed_at=clock_timestamp(),lease_expires_at=NULL WHERE id=$1 AND status='running' AND worker_id=$2 AND attempt=$3 AND lease_expires_at>clock_timestamp()",[job.id,job.workerId,job.attempt]); if(done.rowCount!==1) throw new LeaseLostError(); }
+  private async fenced<T>(job:AuditJob,op:(db:PoolClient)=>Promise<T>):Promise<T> { const db=await this.pool.connect(); try { await db.query("BEGIN"); const fence=await db.query("SELECT 1 FROM audit_jobs WHERE id=$1 AND workspace_id=$2 AND status='running' AND worker_id=$3 AND attempt=$4 AND lease_expires_at>clock_timestamp() FOR UPDATE",[job.id,job.workspaceId,job.workerId,job.attempt]); if(!fence.rows[0]) throw new LeaseLostError(); const value=await op(db); await db.query("COMMIT"); return value; } catch(e) { await db.query("ROLLBACK"); throw e; } finally { db.release(); } }
 }
-
-function auditJobFromRow(row: Record<string, unknown>): AuditJob {
-  const iso = (value: unknown) => value ? new Date(String(value)).toISOString() : null;
-  return { id: String(row.id), workspaceId: String(row.workspace_id), runId: String(row.audit_run_id), jobType: "quick_audit", status: row.status as AuditJobStatus, attempt: Number(row.attempt), availableAt: iso(row.available_at)!, claimedAt: iso(row.claimed_at), leaseExpiresAt: iso(row.lease_expires_at), workerId: row.worker_id ? String(row.worker_id) : null, completedAt: iso(row.completed_at), failureCategory: row.failure_category ? String(row.failure_category) : null };
-}
+async function persistAudit(db:PoolClient,workspaceId:string,runId:string,result:AuditResult,artifact:HostedArtifactMetadata) { const saved={...result,screenshot:undefined}; await db.query("UPDATE audit_runs SET status='completed',completed_at=clock_timestamp(),result_json=$1 WHERE id=$2",[saved,runId]); for(const f of result.findings) await db.query("INSERT INTO findings (id,audit_run_id,workspace_id,rule_id,payload_json) VALUES ($1,$2,$3,$4,$5)",[f.id,runId,workspaceId,f.ruleId,f]); await db.query("INSERT INTO artifacts (id,audit_run_id,workspace_id,kind,content_type,byte_size,sha256,storage_key,status,created_at) VALUES ($1,$2,$3,'screenshot',$4,$5,$6,$7,'available',clock_timestamp())",[artifact.id,runId,workspaceId,artifact.contentType,artifact.byteSize,artifact.sha256,artifact.storageKey]); }
+function fromRow(r:Record<string,unknown>):AuditJob { const type=r.job_type as AuditJobType; return {id:String(r.id),workspaceId:String(r.workspace_id),runId:String(type==="quick_audit"?r.audit_run_id:type==="store_audit"?r.store_audit_run_id:r.discovery_store_id),jobType:type,status:r.status as AuditJob["status"],attempt:Number(r.attempt),workerId:r.worker_id?String(r.worker_id):null,leaseExpiresAt:r.lease_expires_at?new Date(String(r.lease_expires_at)).toISOString():null}; }

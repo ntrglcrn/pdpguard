@@ -37,6 +37,14 @@ export class EmptyStoreCatalogError extends Error {
   }
 }
 
+export class AuditBusyError extends Error {
+  constructor() { super("Another audit is already running. Try again shortly."); this.name = "AuditBusyError"; }
+}
+
+export class CatalogDiscoveryBusyError extends Error {
+  constructor() { super("Another catalog discovery is already running. Try again shortly."); this.name = "CatalogDiscoveryBusyError"; }
+}
+
 export function requiredId(value: string) {
   const id = value.trim();
   if (!id || id.length > 200) throw new Error("A valid ID is required.");

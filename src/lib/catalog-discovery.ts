@@ -11,6 +11,7 @@ import {
   CatalogDiscoveryDeadlineError,
   WorkspaceService,
 } from "@/lib/workspace-service";
+import { CatalogDiscoveryBusyError } from "@/lib/workspace-contract";
 
 const MAX_REDIRECTS = 5;
 const DISCOVERY_TIMEOUT_MS = 30_000;
@@ -30,12 +31,7 @@ export interface CatalogDiscoveryRunner {
   discover(storeUrl: string): Promise<string[] | CatalogDiscoveryResult>;
 }
 
-export class CatalogDiscoveryBusyError extends Error {
-  constructor() {
-    super("Another catalog discovery is already running. Try again shortly.");
-    this.name = "CatalogDiscoveryBusyError";
-  }
-}
+export { CatalogDiscoveryBusyError } from "@/lib/workspace-contract";
 
 export class CatalogDiscoveryTimeoutError extends Error {
   constructor() {

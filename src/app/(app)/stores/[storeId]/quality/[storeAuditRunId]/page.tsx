@@ -53,10 +53,10 @@ export default async function StoreAuditRunPage({
         </p>
       </header>
 
-      {run.status === "running" && (
+      {(run.status === "queued" || run.status === "running") && (
         <Card>
           <CardHeader>
-            <CardTitle>Auditing PDPs</CardTitle>
+            <CardTitle>{run.status === "queued" ? "Waiting to start" : "Auditing PDPs"}</CardTitle>
             <CardDescription>
               Persisted progress: {run.completedPdpCount + run.failedPdpCount} /{" "}
               {run.selectedPdpCount} processed. Refresh to check again.

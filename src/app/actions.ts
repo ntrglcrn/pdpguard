@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect, unstable_rethrow } from "next/navigation";
 import { cookies } from "next/headers";
 
-import { AuditBusyError } from "@/lib/audit-execution";
+import { AuditBusyError } from "@/lib/workspace-contract";
 import {
   createStoreForApp,
   discoverCatalogForApp,
@@ -12,15 +12,15 @@ import {
   executeMonitoringCheckForApp,
   executeStoreAuditForApp,
 } from "@/lib/app-service";
-import { CatalogDiscoveryBusyError } from "@/lib/catalog-discovery";
+import { CatalogDiscoveryBusyError } from "@/lib/workspace-contract";
 import { UnsafeUrlError } from "@/lib/url-safety";
-import { EmptyStoreCatalogError } from "@/lib/workspace-service";
+import { EmptyStoreCatalogError } from "@/lib/workspace-contract";
 import { getPrincipal, getWorkspaceService } from "@/lib/app-service";
 import { authProviderConfigured, signOut } from "../../auth";
-import { SESSION_COOKIE_NAME } from "@/lib/workspace-service";
+import { SESSION_COOKIE_NAME } from "@/lib/workspace-contract";
 
 export async function logoutAction() {
-  getWorkspaceService().revokeSession(await getPrincipal("/login"));
+  await (await getWorkspaceService()).revokeSession(await getPrincipal("/login"));
   if (authProviderConfigured()) await signOut({ redirectTo: "/login" });
   (await cookies()).delete(SESSION_COOKIE_NAME);
   redirect("/login");
@@ -75,7 +75,7 @@ export async function createMonitoringCheckAction(
   try {
     const run = await executeMonitoringCheckForApp(storeId, referenceRunId);
     revalidatePath(`/stores/${storeId}/monitoring`);
-    redirect(`/stores/${storeId}/monitoring?run=${encodeURIComponent(run.id)}&completedRun=${encodeURIComponent(run.id)}`);
+    redirect(`/stores/${storeId}/monitoring?run=${encodeURIComponent(run.id)}${run.status === "queued" || run.status === "running" ? "" : `&completedRun=${encodeURIComponent(run.id)}`}`);
   } catch (error) {
     unstable_rethrow(error);
     if (error instanceof AuditBusyError || error instanceof EmptyStoreCatalogError)

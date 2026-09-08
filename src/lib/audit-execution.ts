@@ -6,15 +6,11 @@ import { AuditTimeoutError, PlaywrightAuditRunner } from "@/lib/audit/engine";
 import type { ScreenshotStorage } from "@/lib/screenshot-storage";
 import { UnsafeUrlError } from "@/lib/url-safety";
 import { WorkspaceService } from "@/lib/workspace-service";
+import { AuditBusyError } from "@/lib/workspace-contract";
 
 type RunnerFactory = (storage: ScreenshotStorage) => AuditRunner;
 
-export class AuditBusyError extends Error {
-  constructor() {
-    super("Another audit is already running. Try again shortly.");
-    this.name = "AuditBusyError";
-  }
-}
+export { AuditBusyError } from "@/lib/workspace-contract";
 
 let auditInProgress = false;
 

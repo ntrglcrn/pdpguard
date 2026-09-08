@@ -232,6 +232,35 @@ export class PostgresWorkspaceService {
     return store;
   }
 
+  /** Production web only creates durable discovery work; Chromium is worker-owned. */
+  async enqueueCatalogDiscovery(principal: AuthenticatedUser, storeId: string) {
+    const store = await this.requireStore(principal, storeId);
+    await this.transaction(async (service) => {
+      await service.database.query(
+        `INSERT INTO catalog_discoveries (store_id, workspace_id, status, partial)
+         VALUES ($1,$2,'queued',false)
+         ON CONFLICT (store_id) DO UPDATE SET status='queued', started_at=NULL, completed_at=NULL,
+           failure_category=NULL, partial=false
+         WHERE catalog_discoveries.status IN ('not_started','succeeded','failed')`,
+        [store.id, store.workspaceId],
+      );
+      const discovery = await service.database.query(
+        "SELECT status FROM catalog_discoveries WHERE store_id = $1", [store.id],
+      );
+      if (discovery.rows[0]?.status !== "queued") throw new AuthorizationError();
+      await service.database.query(
+        `INSERT INTO audit_jobs (id, workspace_id, discovery_store_id, job_type, status, attempt, available_at, created_at)
+         VALUES ($1,$2,$3,'catalog_discovery','queued',0,clock_timestamp(),clock_timestamp())
+         ON CONFLICT (discovery_store_id) DO UPDATE SET status='queued', attempt=0,
+           available_at=clock_timestamp(), claimed_at=NULL, lease_expires_at=NULL, worker_id=NULL,
+           completed_at=NULL, failure_category=NULL
+         WHERE audit_jobs.status IN ('completed','failed')`,
+        [randomUUID(), store.workspaceId, store.id],
+      );
+    });
+    return this.getStoreCatalog(principal, store.id);
+  }
+
   async completeCatalogDiscovery(
     principal: AuthenticatedUser,
     storeId: string,
