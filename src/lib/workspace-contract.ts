@@ -6,7 +6,6 @@ import {
 
 export const SESSION_COOKIE_NAME = "pdpguard_session";
 export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1_000;
-export const STORE_AUDIT_MAX_PDPS = 5;
 export const STORE_AUDIT_RULESET_VERSION = "pdp-rules-v1";
 
 export class AuthorizationError extends Error {

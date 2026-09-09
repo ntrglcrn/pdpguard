@@ -39,11 +39,11 @@ import {
   SESSION_COOKIE_NAME,
   SESSION_TTL_MS,
   sessionCookie,
-  STORE_AUDIT_MAX_PDPS,
   STORE_AUDIT_RULESET_VERSION,
   UnsafeStoreTargetError,
   validateBeforeDeadline,
 } from "@/lib/workspace-contract";
+import { coverageRequest, coverageScope, matchingItems, readScopeSnapshot, selectCoverage, summarizeCatalog } from "@/lib/store-coverage";
 
 export interface HostedArtifactMetadata {
   id: string;
@@ -197,7 +197,7 @@ export class PostgresWorkspaceService {
 
   async getStoreCatalog(principal: AuthenticatedUser, storeId: string): Promise<StoreCatalog> {
     await this.requireStore(principal, storeId);
-    const [discovery, items, categories, mappings] = await Promise.all([
+    const [discovery, items, categories, mappings, summary, categoryCounts] = await Promise.all([
       this.database.query("SELECT * FROM catalog_discoveries WHERE store_id = $1", [storeId]),
       this.database.query(
         `SELECT i.*, COALESCE(array_agg(m.category_id ORDER BY m.category_id)
@@ -207,16 +207,19 @@ export class PostgresWorkspaceService {
       ),
       this.database.query("SELECT * FROM catalog_categories WHERE store_id = $1 ORDER BY active DESC, name, id", [storeId]),
       this.database.query("SELECT catalog_item_id, category_id FROM catalog_category_mappings WHERE store_id = $1", [storeId]),
+      this.database.query(`SELECT COUNT(*) FILTER (WHERE i.active)::integer AS active_count, COUNT(*) FILTER (WHERE NOT i.active)::integer AS inactive_count, COUNT(*) FILTER (WHERE i.active AND EXISTS (SELECT 1 FROM catalog_category_mappings m WHERE m.catalog_item_id=i.id))::integer AS categorized_count, COUNT(*) FILTER (WHERE i.active AND NOT EXISTS (SELECT 1 FROM catalog_category_mappings m WHERE m.catalog_item_id=i.id))::integer AS uncategorized_count FROM catalog_items i WHERE i.store_id=$1`, [storeId]),
+      this.database.query(`SELECT m.category_id, COUNT(DISTINCT i.id)::integer AS active_count FROM catalog_category_mappings m JOIN catalog_items i ON i.id=m.catalog_item_id WHERE m.store_id=$1 AND i.active GROUP BY m.category_id`, [storeId]),
     ]);
-    return {
-      discovery: discovery.rows[0] ? discoveryFromRow(discovery.rows[0]) : {
+    const state: CatalogDiscovery = discovery.rows[0] ? discoveryFromRow(discovery.rows[0]) : {
         storeId, status: "not_started", startedAt: null, completedAt: null,
         failureCategory: null, discoveredCount: 0, rejectedCount: 0, partial: false,
-      },
-      items: items.rows.map(catalogItemFromRow),
-      categories: categories.rows.map(catalogCategoryFromRow),
-      categoryMappings: mappings.rows.map((row) => ({ catalogItemId: String(row.catalog_item_id), categoryId: String(row.category_id) })),
-    };
+      };
+    const catalogItems = items.rows.map(catalogItemFromRow);
+    const catalogCategories = categories.rows.map(catalogCategoryFromRow);
+    const computed = summarizeCatalog(catalogItems, catalogCategories, state.completedAt, state.status === "succeeded" && !state.partial);
+    const totals = summary.rows[0];
+    const counts = Object.fromEntries(categoryCounts.rows.map((row) => [String(row.category_id), Number(row.active_count)]));
+    return { discovery: state, items: catalogItems, categories: catalogCategories, categoryMappings: mappings.rows.map((row) => ({ catalogItemId: String(row.catalog_item_id), categoryId: String(row.category_id) })), summary: { ...computed, activePdpCount: Number(totals?.active_count ?? 0), inactivePdpCount: Number(totals?.inactive_count ?? 0), categorizedActivePdpCount: Number(totals?.categorized_count ?? 0), uncategorizedActivePdpCount: Number(totals?.uncategorized_count ?? 0), categoryActivePdpCounts: counts } };
   }
 
   async startCatalogDiscovery(principal: AuthenticatedUser, storeId: string) {
@@ -555,24 +558,18 @@ export class PostgresWorkspaceService {
 
   async createStoreAuditRun(principal: AuthenticatedUser, storeId: string, input: AuditScopeInput = { kind: "all" }) {
     const store = await this.requireStore(principal, storeId);
-    const categoryId = input.kind === "category" ? input.categoryId : null;
-    const category = categoryId ? (await this.database.query(
-      "SELECT * FROM catalog_categories WHERE id = $1 AND store_id = $2 AND active = true", [categoryId, storeId],
-    )).rows[0] : undefined;
-    if (categoryId && !category) throw new AuthorizationError();
-    const matching = await this.database.query<{ id: string; normalized_url: string }>(
-      `SELECT i.id, i.normalized_url FROM catalog_items i WHERE i.store_id = $1 AND i.active = true AND (
-        $2 = 'all' OR ($2 = 'category' AND EXISTS (SELECT 1 FROM catalog_category_mappings m WHERE m.catalog_item_id = i.id AND m.category_id = $3))
-        OR ($2 = 'uncategorized' AND NOT EXISTS (SELECT 1 FROM catalog_category_mappings m WHERE m.catalog_item_id = i.id))
-       ) ORDER BY i.normalized_url, i.id`, [storeId, input.kind, categoryId ?? ""],
-    );
-    const selected = matching.rows.slice(0, STORE_AUDIT_MAX_PDPS);
+    const catalog = await this.getStoreCatalog(principal, storeId);
+    const criteria = coverageRequest(input);
+    const activeCategories = new Map(catalog.categories.filter((category) => category.active).map((category) => [category.id, category]));
+    if (criteria.categoryIds.some((id) => !activeCategories.has(id))) throw new AuthorizationError();
+    const matching = input.kind === "all" ? catalog.items.filter((item) => item.active) : matchingItems(catalog.items, criteria.categoryIds, criteria.includeUncategorized);
+    const selected = selectCoverage(matching, catalog.categories, criteria.categoryIds, criteria.requested);
     if (!selected.length) throw new Error("Discover active product pages before running a Store Audit.");
-    const discovery = (await this.database.query<{ status: string; partial: boolean }>("SELECT status, partial FROM catalog_discoveries WHERE store_id = $1", [storeId])).rows[0];
-    const scope: AuditScopeSnapshot = { kind: input.kind, categoryId, categoryName: category ? String(category.name) : null, matchingPdpCount: matching.rowCount ?? matching.rows.length, executionLimit: STORE_AUDIT_MAX_PDPS, selectedCatalogItemIds: selected.map((item) => item.id), selectionSemantics: "active_catalog_url_order_v1", catalogComplete: discovery?.status === "succeeded" && !discovery.partial };
+    const categoryNames = criteria.categoryIds.map((id) => activeCategories.get(id)!.name);
+    const scope = coverageScope(input, categoryNames, matching, selected, catalog.summary.complete, catalog.summary.latestDiscoveryAt);
     const startedAt = new Date().toISOString();
-    const run: StoreAuditRun = { id: randomUUID(), workspaceId: store.workspaceId, storeId, status: "queued", selectionMode: "automatic_bounded_active_catalog_v1", selectionSignature: createHash("sha256").update(JSON.stringify({ scope, selected: selected.map((item) => [item.id, item.normalized_url]), ruleset: STORE_AUDIT_RULESET_VERSION })).digest("hex"), rulesetVersion: STORE_AUDIT_RULESET_VERSION, scope, selectedPdpCount: selected.length, completedPdpCount: 0, failedPdpCount: 0, startedAt, completedAt: null, summary: null };
-    const items: StoreAuditRunItem[] = selected.map((item, position) => ({ id: randomUUID(), storeAuditRunId: run.id, catalogItemId: item.id, normalizedUrl: item.normalized_url, position, auditRunId: null, failureCategory: null }));
+    const run: StoreAuditRun = { id: randomUUID(), workspaceId: store.workspaceId, storeId, status: "queued", selectionMode: "automatic_bounded_active_catalog_v1", selectionSignature: createHash("sha256").update(JSON.stringify({ scope, selected: selected.map((item) => [item.id, item.normalizedUrl]), ruleset: STORE_AUDIT_RULESET_VERSION })).digest("hex"), rulesetVersion: STORE_AUDIT_RULESET_VERSION, scope, selectedPdpCount: selected.length, completedPdpCount: 0, failedPdpCount: 0, startedAt, completedAt: null, summary: null };
+    const items: StoreAuditRunItem[] = selected.map((item, position) => ({ id: randomUUID(), storeAuditRunId: run.id, catalogItemId: item.id, normalizedUrl: item.normalizedUrl, position, auditRunId: null, failureCategory: null }));
     const jobId = randomUUID();
     await this.transaction(async (service) => {
       await service.database.query(
@@ -739,9 +736,9 @@ export class PostgresWorkspaceService {
   ): Promise<AuditScopeInput> {
     const report = await this.getMonitoringReport(principal, storeId, referenceRunId);
     if (!report.canRunCheck) throw new EmptyStoreCatalogError();
-    return report.scope.kind === "category"
-      ? { kind: "category", categoryId: report.scope.categoryId! }
-      : { kind: report.scope.kind };
+    if (report.scope.kind === "category") return { kind: "category", categoryId: report.scope.categoryId! };
+    if (report.scope.kind === "coverage") return { kind: "coverage", categoryIds: report.scope.categoryIds ?? [], includeUncategorized: report.scope.includeUncategorized ?? false, requestedCoverage: report.scope.requestedCoverage ?? report.scope.executionLimit };
+    return { kind: report.scope.kind };
   }
 
   async startStoreAuditRun(principal: AuthenticatedUser, storeAuditRunId: string) {
@@ -1206,18 +1203,7 @@ function scopeFromRow(row: QueryResultRow): AuditScopeSnapshot {
   const scope = row.scope_snapshot_json
     ? jsonValue<Partial<AuditScopeSnapshot>>(row.scope_snapshot_json)
     : {};
-  return {
-    kind: scope.kind ?? "all",
-    categoryId: scope.categoryId ?? null,
-    categoryName: scope.categoryName ?? null,
-    matchingPdpCount: scope.matchingPdpCount ?? Number(row.selected_pdp_count),
-    executionLimit: /^[0-9]{1,9}$/.test(String(scope.executionLimit))
-      ? Number(scope.executionLimit)
-      : STORE_AUDIT_MAX_PDPS,
-    selectedCatalogItemIds: scope.selectedCatalogItemIds ?? [],
-    selectionSemantics: scope.selectionSemantics ?? "active_catalog_url_order_v1",
-    catalogComplete: scope.catalogComplete ?? true,
-  };
+  return readScopeSnapshot(scope);
 }
 
 function storeAuditRunItemFromRow(row: QueryResultRow): StoreAuditRunItem {

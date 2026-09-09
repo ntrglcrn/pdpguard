@@ -10,6 +10,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { getStoreAuditRunForApp } from "@/lib/app-service";
+import { coverageMetrics } from "@/lib/store-coverage";
 
 export default async function StoreAuditRunPage({
   params,
@@ -18,6 +19,7 @@ export default async function StoreAuditRunPage({
   const data = await getStoreAuditRunForApp(storeAuditRunId);
   if (!data || data.store.id !== storeId) notFound();
   const { run, store } = data;
+  const coverage = coverageMetrics(run.scope.matchingPdpCount, run.selectedPdpCount, run.completedPdpCount);
 
   return (
     <div className="space-y-8">
@@ -51,6 +53,7 @@ export default async function StoreAuditRunPage({
           {run.completedPdpCount} completed
           {run.failedPdpCount ? ` · ${run.failedPdpCount} failed` : ""}
         </p>
+        <p className="text-sm text-muted-foreground">Planned coverage: {percent(coverage.planned)} · Executed coverage: {percent(coverage.executed)} · Completion: {percent(coverage.completion)}</p>
       </header>
 
       {(run.status === "queued" || run.status === "running") && (
@@ -185,9 +188,11 @@ export default async function StoreAuditRunPage({
   );
 }
 
+function percent(value: number | null) { return value === null ? "—" : `${value.toFixed(1)}%`; }
+
 function scopeLabel(run: {
   scope: {
-    kind: "all" | "category" | "uncategorized";
+    kind: string;
     categoryName: string | null;
   };
 }) {

@@ -75,9 +75,16 @@ export interface CatalogCategoryMapping {
 }
 
 export type AuditScopeInput =
-  | { kind: "all" }
+  | { kind: "all"; requestedCoverage?: number | "all" }
   | { kind: "category"; categoryId: string }
-  | { kind: "uncategorized" };
+  | { kind: "uncategorized" }
+  | {
+      kind: "coverage";
+      categoryIds: string[];
+      includeUncategorized: boolean;
+      requestedCoverage: number | "all";
+      selectionStrategy?: "representative";
+    };
 
 export interface AuditScopeSnapshot {
   kind: AuditScopeInput["kind"];
@@ -86,8 +93,20 @@ export interface AuditScopeSnapshot {
   matchingPdpCount: number;
   executionLimit: number;
   selectedCatalogItemIds: string[];
-  selectionSemantics: "active_catalog_url_order_v1";
+  selectionSemantics: "active_catalog_url_order_v1" | "representative_category_round_robin_v2";
   catalogComplete: boolean;
+  version?: 2;
+  categoryIds?: string[];
+  categoryNames?: string[];
+  includeUncategorized?: boolean;
+  requestedCoverage?: number | "all";
+  effectiveCoverage?: number;
+  absoluteSafetyMax?: number;
+  selectionStrategy?: "representative";
+  selectedNormalizedUrls?: string[];
+  catalogIdentity?: string | null;
+  fingerprint?: string;
+  coverageKnown?: boolean;
 }
 
 export interface CatalogDiscovery {
@@ -106,6 +125,18 @@ export interface StoreCatalog {
   items: CatalogItem[];
   categories: CatalogCategory[];
   categoryMappings: CatalogCategoryMapping[];
+  summary: CatalogSummary;
+}
+
+export interface CatalogSummary {
+  activePdpCount: number;
+  inactivePdpCount: number;
+  categorizedActivePdpCount: number;
+  uncategorizedActivePdpCount: number;
+  activeCategoryCount: number;
+  latestDiscoveryAt: string | null;
+  complete: boolean;
+  categoryActivePdpCounts: Record<string, number>;
 }
 
 export interface AuditRun {

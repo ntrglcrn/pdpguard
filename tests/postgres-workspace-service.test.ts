@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Pool } from "pg";
 
 import type { AuditResult } from "@/domain/audit";
+import { coverageMetrics } from "@/lib/store-coverage";
 import { PostgresWorkspaceService } from "@/lib/postgres-workspace-service";
 import { AuthorizationError } from "@/lib/workspace-contract";
 
@@ -40,7 +41,7 @@ describe.skipIf(!databaseUrl)("PostgresWorkspaceService", () => {
     admin = new Pool({ connectionString: databaseUrl });
     await admin.query(`CREATE SCHEMA ${schema}`);
     pool = new Pool({ connectionString: databaseUrl, options: `-c search_path=${schema}` });
-    for (const migration of ["0001_initial.sql", "0002_external_identities.sql"])
+    for (const migration of ["0001_initial.sql", "0002_external_identities.sql", "0003_store_coverage_limit.sql"])
       await pool.query(await readFile(path.join(process.cwd(), "migrations", migration), "utf8"));
     service = new PostgresWorkspaceService(pool, resolver);
   });
@@ -213,6 +214,103 @@ describe.skipIf(!databaseUrl)("PostgresWorkspaceService", () => {
     expect(afterFailure.run.scope.catalogComplete).toBe(false);
   });
 
+  it("selects authoritative multi-category coverage deterministically and rejects tampering", async () => {
+    const owner = await service.authenticateSession((await service.issueSession("coverage-owner")).token);
+    const outsider = await service.authenticateSession((await service.issueSession("coverage-outsider")).token);
+    const workspace = await service.createWorkspace(owner, "Coverage");
+    const store = await service.createStore(owner, workspace.id, { url: "https://example.com" });
+    const otherStore = await service.createStore(owner, workspace.id, { url: "https://other.example" });
+    await service.startCatalogDiscovery(owner, store.id);
+    const catalog = await service.completeCatalogDiscovery(owner, store.id, {
+      productUrls: ["a", "b", "c", "d", "inactive"].map((slug) => `https://example.com/products/${slug}`),
+      categories: [
+        { url: "https://example.com/collections/one", name: "One" },
+        { url: "https://example.com/collections/two", name: "Two" },
+      ],
+      mappings: [
+        { productUrl: "https://example.com/products/a", categoryUrl: "https://example.com/collections/one" },
+        { productUrl: "https://example.com/products/a", categoryUrl: "https://example.com/collections/two" },
+        { productUrl: "https://example.com/products/b", categoryUrl: "https://example.com/collections/one" },
+        { productUrl: "https://example.com/products/c", categoryUrl: "https://example.com/collections/two" },
+      ],
+      truncated: false,
+    });
+    const [one, two] = catalog.categories;
+    await pool.query("UPDATE catalog_items SET active=false WHERE store_id=$1 AND normalized_url LIKE '%/inactive'", [store.id]);
+    const refreshed = await service.getStoreCatalog(owner, store.id);
+    expect(refreshed.summary).toMatchObject({ activePdpCount: 4, inactivePdpCount: 1, categorizedActivePdpCount: 3, uncategorizedActivePdpCount: 1 });
+    expect(refreshed.summary.categoryActivePdpCounts).toMatchObject({ [one.id]: 2, [two.id]: 2 });
+
+    const input = { kind: "coverage" as const, categoryIds: [two.id, one.id, one.id], includeUncategorized: true, requestedCoverage: "all" as const, selectionStrategy: "representative" as const };
+    const first = await service.createStoreAuditRun(owner, store.id, input);
+    const second = await service.createStoreAuditRun(owner, store.id, input);
+    expect(first.run.scope).toMatchObject({
+      version: 2, categoryIds: [one.id, two.id].sort(), includeUncategorized: true,
+      matchingPdpCount: 4, requestedCoverage: "all", effectiveCoverage: 4,
+      absoluteSafetyMax: 25, selectionStrategy: "representative", catalogComplete: true,
+      selectedCatalogItemIds: first.items.map((item) => item.catalogItemId),
+      selectedNormalizedUrls: first.items.map((item) => item.normalizedUrl),
+      catalogIdentity: expect.any(String), fingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
+    });
+    expect(first.items.map((item) => item.normalizedUrl)).toEqual(second.items.map((item) => item.normalizedUrl));
+    expect(first.run.selectionSignature).toBe(second.run.selectionSignature);
+    expect(first.items.filter((item) => item.normalizedUrl.endsWith("/a"))).toHaveLength(1);
+    expect((await service.createStoreAuditRun(owner, store.id, { kind: "uncategorized" })).run.scope.matchingPdpCount).toBe(1);
+    expect((await service.createStoreAuditRun(owner, store.id, { kind: "all", requestedCoverage: "all" })).run.scope.matchingPdpCount).toBe(4);
+    expect((await service.createStoreAuditRun(owner, store.id, { kind: "coverage", categoryIds: [one.id], includeUncategorized: false, requestedCoverage: 10 })).run.scope.matchingPdpCount).toBe(2);
+
+    for (const requestedCoverage of [-1, 0, 1.5, 26, Number.MAX_SAFE_INTEGER])
+      await expect(service.createStoreAuditRun(owner, store.id, { kind: "coverage", categoryIds: [one.id], includeUncategorized: false, requestedCoverage })).rejects.toThrow();
+    await expect(service.createStoreAuditRun(owner, store.id, { kind: "coverage", categoryIds: Array(101).fill(one.id), includeUncategorized: false, requestedCoverage: 10 })).rejects.toThrow();
+    await expect(service.createStoreAuditRun(owner, store.id, { kind: "coverage", categoryIds: [randomUUID()], includeUncategorized: false, requestedCoverage: 10 })).rejects.toBeInstanceOf(AuthorizationError);
+    await expect(service.createStoreAuditRun(owner, otherStore.id, { kind: "coverage", categoryIds: [one.id], includeUncategorized: false, requestedCoverage: 10 })).rejects.toBeInstanceOf(AuthorizationError);
+    await expect(service.createStoreAuditRun(outsider, store.id, input)).rejects.toBeInstanceOf(AuthorizationError);
+    await expect(service.createStoreAuditRun(owner, store.id, { ...input, selectionStrategy: "first" } as never)).rejects.toThrow();
+    expect(coverageMetrics(200, 25, 23)).toEqual({ planned: 12.5, executed: 11.5, completion: 92 });
+    expect(coverageMetrics(0, 0, 0)).toEqual({ planned: null, executed: null, completion: null });
+  });
+
+  it("aggregates and bounds a 5,000-PDP catalog on the server", async () => {
+    const principal = await service.authenticateSession((await service.issueSession("large-catalog-owner")).token);
+    const workspace = await service.createWorkspace(principal, "Large catalog");
+    const store = await service.createStore(principal, workspace.id, { url: "https://example.com" });
+    const ids = Array.from({ length: 5_000 }, () => randomUUID());
+    const urls = ids.map((_, index) => `https://example.com/products/large-${String(index).padStart(4, "0")}`);
+    const categoryOne = randomUUID();
+    const categoryTwo = randomUUID();
+    await pool.query(
+      `INSERT INTO catalog_discoveries (store_id,workspace_id,status,started_at,completed_at,discovered_count,rejected_count,partial)
+       VALUES ($1,$2,'succeeded',now(),now(),5000,0,false)`, [store.id, workspace.id],
+    );
+    await pool.query(
+      `INSERT INTO catalog_items (id,workspace_id,store_id,normalized_url,source,first_seen_at,last_seen_at,active)
+       SELECT id,$1,$2,url,'root_page_link',now(),now(),true FROM unnest($3::text[],$4::text[]) AS rows(id,url)`,
+      [workspace.id, store.id, ids, urls],
+    );
+    await pool.query(
+      `INSERT INTO catalog_categories (id,workspace_id,store_id,normalized_path,name,source,first_seen_at,last_seen_at,active)
+       VALUES ($1,$2,$3,'https://example.com/collections/one','One','root_page_link',now(),now(),true),
+              ($4,$2,$3,'https://example.com/collections/two','Two','root_page_link',now(),now(),true)`,
+      [categoryOne, workspace.id, store.id, categoryTwo],
+    );
+    await pool.query(
+      `INSERT INTO catalog_category_mappings (store_id,catalog_item_id,category_id)
+       SELECT $1,id,$2 FROM unnest($3::text[]) id`,
+      [store.id, categoryOne, ids],
+    );
+    await pool.query(
+      `INSERT INTO catalog_category_mappings (store_id,catalog_item_id,category_id)
+       SELECT $1,id,$2 FROM unnest($3::text[]) id`,
+      [store.id, categoryTwo, ids.slice(0, 1_000)],
+    );
+
+    const catalog = await service.getStoreCatalog(principal, store.id);
+    expect(catalog.summary).toMatchObject({ activePdpCount: 5_000, uncategorizedActivePdpCount: 0, categoryActivePdpCounts: { [categoryOne]: 5_000, [categoryTwo]: 1_000 } });
+    const run = await service.createStoreAuditRun(principal, store.id, { kind: "coverage", categoryIds: [categoryOne, categoryTwo], includeUncategorized: false, requestedCoverage: "all" });
+    expect(run.run).toMatchObject({ selectedPdpCount: 25, scope: { matchingPdpCount: 5_000, effectiveCoverage: 25 } });
+    expect(new Set(run.items.map((item) => item.catalogItemId)).size).toBe(25);
+  });
+
   it("ports Store Audit child lifecycle, report aggregation, and Monitoring", async () => {
     const session = await service.issueSession("monitoring-owner");
     const principal = await service.authenticateSession(session.token);
@@ -265,7 +363,7 @@ describe.skipIf(!databaseUrl)("PostgresWorkspaceService", () => {
     );
     await expect(service.listMonitoringTargets(principal, store.id)).resolves.toMatchObject([{
       referenceRunId: runId,
-      scope: { kind: "all", executionLimit: 5, selectedCatalogItemIds: [], catalogComplete: true },
+      scope: { kind: "all", executionLimit: 5, matchingPdpCount: 0, coverageKnown: false, selectedCatalogItemIds: [], catalogComplete: true },
     }]);
   });
 });

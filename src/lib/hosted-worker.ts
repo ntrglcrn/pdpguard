@@ -26,7 +26,7 @@ async function audit(url: string, objects: ArtifactStore) {
   return { result, artifact: { id: result.screenshot.id, storageKey, contentType: "image/png" as const, byteSize: contents.byteLength, sha256: createHash("sha256").update(contents).digest("hex") } };
 }
 
-async function execute(job: AuditJob, jobs: PostgresAuditJobs, objects: ArtifactStore) {
+export async function executeHostedJob(job: AuditJob, jobs: PostgresAuditJobs, objects: ArtifactStore, auditPage = audit) {
   let renewal: ReturnType<typeof setInterval> | undefined;
   try {
     const input = await jobs.start(job);
@@ -34,14 +34,14 @@ async function execute(job: AuditJob, jobs: PostgresAuditJobs, objects: Artifact
       void jobs.renew(job).catch(() => undefined);
     }, Math.floor(WORKER_LEASE_MS / 3));
     if (job.jobType === "quick_audit") {
-      const output = await audit(input.targetUrl!, objects);
+      const output = await auditPage(input.targetUrl!, objects);
       try { await jobs.completeQuick(job, output.result, output.artifact); } catch (error) { await objects.delete(output.artifact.storageKey).catch(() => undefined); throw error; }
       return;
     }
     if (job.jobType === "catalog_discovery") { await jobs.completeCatalog(job, await new PlaywrightCatalogDiscoveryRunner().discover(input.storeUrl)); return; }
     const outcomes: StoreOutcome[] = [];
     for (const item of input.items ?? []) {
-      try { const output = await audit(item.normalizedUrl, objects); outcomes.push({ itemId: item.id, ...output }); }
+      try { const output = await auditPage(item.normalizedUrl, objects); outcomes.push({ itemId: item.id, ...output }); }
       catch (error) { outcomes.push({ itemId: item.id, failureCategory: category(error) }); }
     }
     try { await jobs.completeStore(job, outcomes); } catch (error) {
@@ -62,6 +62,6 @@ export async function runWorker() {
   if (!config) throw new Error("Worker requires production hosted runtime configuration.");
   const pool = new Pool({ connectionString: config.databaseUrl });
   const jobs = new PostgresAuditJobs(pool); const objects = new S3ArtifactStore(config);
-  try { for (;;) { const job = await jobs.claim(config.workerId!, WORKER_LEASE_MS); if (!job) { await new Promise((resolve) => setTimeout(resolve, 500)); continue; } await execute(job, jobs, objects); } }
+  try { for (;;) { const job = await jobs.claim(config.workerId!, WORKER_LEASE_MS); if (!job) { await new Promise((resolve) => setTimeout(resolve, 500)); continue; } await executeHostedJob(job, jobs, objects); } }
   finally { await pool.end(); }
 }

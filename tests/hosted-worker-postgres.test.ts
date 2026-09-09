@@ -5,7 +5,9 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Pool } from "pg";
 
 import type { AuditResult } from "@/domain/audit";
+import type { ArtifactStore } from "@/lib/artifact-store";
 import { LeaseLostError, PostgresAuditJobs } from "@/lib/hosted-jobs";
+import { executeHostedJob } from "@/lib/hosted-worker";
 import { PostgresWorkspaceService, type HostedArtifactMetadata } from "@/lib/postgres-workspace-service";
 
 const databaseUrl = process.env.PDP_GUARD_TEST_DATABASE_URL;
@@ -42,7 +44,7 @@ describe.skipIf(!databaseUrl)("hosted worker Postgres fencing", () => {
     setupPool = new Pool({ connectionString: databaseUrl, options });
     workerAPool = new Pool({ connectionString: databaseUrl, options });
     workerBPool = new Pool({ connectionString: databaseUrl, options });
-    for (const migration of ["0001_initial.sql", "0002_external_identities.sql"])
+    for (const migration of ["0001_initial.sql", "0002_external_identities.sql", "0003_store_coverage_limit.sql"])
       await setupPool.query(await readFile(path.join(process.cwd(), "migrations", migration), "utf8"));
     service = new PostgresWorkspaceService(setupPool, resolver);
     workerA = new PostgresAuditJobs(workerAPool, resolver);
@@ -151,6 +153,37 @@ describe.skipIf(!databaseUrl)("hosted worker Postgres fencing", () => {
     const winning = result(inputA.items![0].normalizedUrl, randomUUID());
     await workerB.completeStore(claimedB!, [{ itemId: inputA.items![0].id, result: winning, artifact: artifact(winning.screenshot.id) }]);
     expect((await setupPool.query("SELECT status,completed_pdp_count FROM store_audit_runs WHERE id=$1", [created.run.id])).rows[0]).toEqual({ status: "completed", completed_pdp_count: 1 });
+  });
+
+  it("executes every persisted PDP beyond five and records a partial terminal result", async () => {
+    const session = await service.issueSession("worker-store-ten");
+    const principal = await service.authenticateSession(session.token);
+    const workspace = await service.createWorkspace(principal, "Store ten");
+    const store = await service.createStore(principal, workspace.id, { url: "https://example.com" });
+    await service.startCatalogDiscovery(principal, store.id);
+    await service.completeCatalogDiscovery(principal, store.id, Array.from({ length: 10 }, (_, index) => `https://example.com/products/${index}`));
+    const created = await service.createStoreAuditRun(principal, store.id, { kind: "all", requestedCoverage: 10 });
+    expect(created.run.selectedPdpCount).toBe(10);
+    const claimed = await workerA.claim("store-ten", 60_000);
+    expect(claimed).toMatchObject({ id: created.jobId });
+    const calls: string[] = [];
+    const objects: ArtifactStore = { put: async () => "unused", get: async () => null, delete: async () => undefined };
+    await executeHostedJob(claimed!, workerA, objects, async (url) => {
+      calls.push(url);
+      if (calls.length > 8) throw new Error("fixture infrastructure failure");
+      const id = randomUUID();
+      return { result: result(url, id), artifact: artifact(id) };
+    });
+
+    expect(calls).toHaveLength(10);
+    expect(await service.getStoreAuditRun(principal, created.run.id)).toMatchObject({
+      status: "completed_with_failures", selectedPdpCount: 10, completedPdpCount: 8, failedPdpCount: 2,
+      items: expect.arrayContaining([
+        expect.objectContaining({ position: 0, auditRunId: expect.any(String) }),
+        expect.objectContaining({ position: 9, failureCategory: "infrastructure" }),
+      ]),
+    });
+    expect((await setupPool.query("SELECT status FROM audit_jobs WHERE id=$1", [created.jobId])).rows[0].status).toBe("completed");
   });
 
   it("rolls back run, finding, artifact and job when terminal artifact insertion fails", async () => {

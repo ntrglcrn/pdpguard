@@ -258,7 +258,7 @@ describe("WorkspaceService", () => {
     value.close();
   });
 
-  it("snapshots at most five active catalog PDPs in stable URL order", async () => {
+  it("snapshots bounded active catalog PDPs in stable URL order", async () => {
     const { value } = service();
     const principal = value.authenticateSession(value.issueSession("owner").token);
     const workspace = value.createWorkspace(principal, "Acme");
@@ -276,13 +276,14 @@ describe("WorkspaceService", () => {
     ]);
 
     const { run, items } = value.createStoreAuditRun(principal, store.id);
-    expect(run.selectedPdpCount).toBe(5);
+    expect(run.selectedPdpCount).toBe(6);
     expect(items.map((item) => item.normalizedUrl)).toEqual([
       "https://example.com/a",
       "https://example.com/b",
       "https://example.com/c",
       "https://example.com/d",
       "https://example.com/e",
+      "https://example.com/z",
     ]);
     value.close();
   });
@@ -300,9 +301,12 @@ describe("WorkspaceService", () => {
       truncated: false,
     });
     const scoped = value.createStoreAuditRun(principal, store.id, { kind: "category", categoryId: catalog.categories[0].id });
-    expect(scoped.run.scope).toMatchObject({ kind: "category", matchingPdpCount: 1, categoryName: "Rings" });
+    expect(scoped.run.scope).toMatchObject({ kind: "coverage", matchingPdpCount: 1, categoryName: "Rings" });
     expect(scoped.items.map((item) => item.normalizedUrl)).toEqual(["https://example.com/products/a"]);
     expect(value.createStoreAuditRun(principal, store.id, { kind: "uncategorized" }).items.map((item) => item.normalizedUrl)).toEqual(["https://example.com/products/b"]);
+    const combined = value.createStoreAuditRun(principal, store.id, { kind: "coverage", categoryIds: [catalog.categories[0].id], includeUncategorized: true, requestedCoverage: "all" });
+    expect(combined.run.scope).toMatchObject({ version: 2, categoryIds: [catalog.categories[0].id], includeUncategorized: true, requestedCoverage: "all", effectiveCoverage: 2, absoluteSafetyMax: 25 });
+    expect(combined.items).toHaveLength(2);
     value.close();
   });
 

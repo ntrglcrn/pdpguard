@@ -61,7 +61,6 @@ export default async function StoreCatalogPage({
           )
         : true,
   );
-  const scope = category ? "category" : uncategorized ? "uncategorized" : "all";
   const scopeLabel =
     category?.name ?? (uncategorized ? "Uncategorized" : "All products");
   const categoriesById = new Map(
@@ -205,7 +204,7 @@ export default async function StoreCatalogPage({
           </nav>
 
           <div className="min-w-0 space-y-4">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
               <div>
                 <h2
                   id="catalog-items-title"
@@ -217,12 +216,13 @@ export default async function StoreCatalogPage({
                   {matchingItems.length} matching PDP
                   {matchingItems.length === 1 ? "" : "s"}
                 </p>
-              </div>
+      </div>
+      <p className="text-sm text-muted-foreground">{catalog.summary.activePdpCount} active PDPs · {catalog.summary.activeCategoryCount} categories · {catalog.summary.uncategorizedActivePdpCount} uncategorized · {catalog.summary.complete ? "Complete catalog" : "Catalog incomplete"}</p>
               <StoreAuditForm
                 storeId={store.id}
-                matchingPdpCount={matchingItems.length}
-                scope={scope}
-                categoryId={category?.id}
+                activePdpCount={catalog.summary.activePdpCount}
+                uncategorizedPdpCount={catalog.summary.uncategorizedActivePdpCount}
+                categories={activeCategories.map((item) => ({ id: item.id, name: item.name, activePdpCount: catalog.summary.categoryActivePdpCounts[item.id] ?? 0 }))}
               />
             </div>
 

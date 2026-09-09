@@ -22,7 +22,8 @@ export default async function StorePage({
   const data = await getStoreForApp(storeId);
   if (!data) notFound();
   const { store, runs, storeAuditRuns, catalog } = data;
-  const activePdpCount = catalog.items.filter((item) => item.active).length;
+  const activePdpCount = catalog.summary.activePdpCount;
+  const coverageCategories = catalog.categories.filter((category) => category.active).map((category) => ({ id: category.id, name: category.name, activePdpCount: catalog.summary.categoryActivePdpCounts[category.id] ?? 0 }));
 
   return (
     <div className="space-y-8">
@@ -74,6 +75,8 @@ export default async function StorePage({
         </div>
       </div>
 
+      <p className="text-sm text-muted-foreground">{catalog.summary.activePdpCount} active PDPs · {catalog.summary.activeCategoryCount} categories · {catalog.summary.uncategorizedActivePdpCount} uncategorized · {catalog.summary.complete ? "Catalog complete" : "Catalog incomplete"}</p>
+
       <section aria-labelledby="quality-title" className="space-y-4">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
@@ -87,7 +90,7 @@ export default async function StorePage({
               Store-level issues across a persisted catalog selection.
             </p>
           </div>
-          <StoreAuditForm storeId={store.id} activePdpCount={activePdpCount} />
+          <StoreAuditForm storeId={store.id} activePdpCount={activePdpCount} uncategorizedPdpCount={catalog.summary.uncategorizedActivePdpCount} categories={coverageCategories} />
         </div>
         {!activePdpCount ? (
           <Card className="border-dashed">
@@ -162,8 +165,7 @@ export default async function StorePage({
             <CardHeader>
               <CardTitle>No Store Audits yet</CardTitle>
               <CardDescription>
-                Run the existing deterministic PDP checks across up to 5 active
-                catalog pages.
+                Run deterministic PDP checks across a bounded catalog selection.
               </CardDescription>
             </CardHeader>
           </Card>
@@ -205,7 +207,7 @@ export default async function StorePage({
 
 function scopeLabel(run: {
   scope: {
-    kind: "all" | "category" | "uncategorized";
+    kind: string;
     categoryName: string | null;
   };
 }) {

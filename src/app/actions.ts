@@ -15,6 +15,7 @@ import {
 import { CatalogDiscoveryBusyError } from "@/lib/workspace-contract";
 import { UnsafeUrlError } from "@/lib/url-safety";
 import { EmptyStoreCatalogError } from "@/lib/workspace-contract";
+import { CoverageInputError } from "@/lib/store-coverage";
 import { getPrincipal, getWorkspaceService } from "@/lib/app-service";
 import { authProviderConfigured, signOut } from "../../auth";
 import { SESSION_COOKIE_NAME } from "@/lib/workspace-contract";
@@ -42,21 +43,20 @@ export async function createStoreAuditAction(
   formData: FormData,
 ): Promise<CatalogActionState> {
   void _previousState;
-  const categoryId = text(formData, "categoryId");
   const scope = text(formData, "scope");
+  const categoryIds = formData.getAll("categoryId").map(String);
+  const coverage = text(formData, "coverage");
   const auditScope =
-    scope === "uncategorized"
-      ? { kind: "uncategorized" as const }
-      : categoryId
-        ? { kind: "category" as const, categoryId }
-        : { kind: "all" as const };
+    scope === "coverage"
+      ? { kind: "coverage" as const, categoryIds, includeUncategorized: formData.get("includeUncategorized") === "1", requestedCoverage: coverage === "all" ? "all" as const : Number(coverage) }
+      : { kind: "all" as const, requestedCoverage: coverage === "all" ? "all" as const : Number(coverage) };
   let run;
   try {
     run = await executeStoreAuditForApp(storeId, auditScope);
   } catch (error) {
     unstable_rethrow(error);
     if (
-      error instanceof AuditBusyError ||
+      error instanceof AuditBusyError || error instanceof CoverageInputError ||
       error instanceof EmptyStoreCatalogError
     )
       return { error: error.message };
